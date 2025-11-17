@@ -4801,7 +4801,8 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
   // Get all users (using new RBAC schema)
   app.get('/api/users', async (req, res) => {
     try {
-      // First get all users with person details
+      // PERFORMANCE FIX: Batch fetch users with their current roles in one query
+      // Get all users with person details
       const usersData = await db
         .select({
           id: userAccounts.id,
@@ -4818,30 +4819,42 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
         .from(userAccounts)
         .innerJoin(people, eq(userAccounts.personId, people.id));
 
-      // For each user, get their current employment role (most recent active role)
-      const usersWithRoles = await Promise.all(
-        usersData.map(async (user) => {
-          const currentRole = await db
-            .select({
-              roleTitle: employmentRoles.title,
-            })
-            .from(userEmploymentHistory)
-            .innerJoin(employmentRoles, eq(userEmploymentHistory.employmentRoleId, employmentRoles.id))
-            .where(
-              and(
-                eq(userEmploymentHistory.userAccountId, user.id),
-                isNull(userEmploymentHistory.endDate)
-              )
-            )
-            .orderBy(desc(userEmploymentHistory.startDate))
-            .limit(1);
+      if (usersData.length === 0) {
+        return res.json([]);
+      }
 
-          return {
-            ...user,
-            currentEmploymentRole: currentRole[0]?.roleTitle || null,
-          };
+      // Batch fetch all current employment roles in ONE query
+      const userIds = usersData.map(u => u.id);
+      const { inArray } = await import('drizzle-orm');
+      const allCurrentRoles = await db
+        .select({
+          userAccountId: userEmploymentHistory.userAccountId,
+          roleTitle: employmentRoles.title,
+          startDate: userEmploymentHistory.startDate,
         })
-      );
+        .from(userEmploymentHistory)
+        .innerJoin(employmentRoles, eq(userEmploymentHistory.employmentRoleId, employmentRoles.id))
+        .where(
+          and(
+            inArray(userEmploymentHistory.userAccountId, userIds),
+            isNull(userEmploymentHistory.endDate)
+          )
+        )
+        .orderBy(desc(userEmploymentHistory.startDate));
+
+      // Group roles by user and take the most recent
+      const rolesByUser = new Map<string, string>();
+      for (const role of allCurrentRoles) {
+        if (!rolesByUser.has(role.userAccountId)) {
+          rolesByUser.set(role.userAccountId, role.roleTitle);
+        }
+      }
+
+      // Assemble users with their roles
+      const usersWithRoles = usersData.map(user => ({
+        ...user,
+        currentEmploymentRole: rolesByUser.get(user.id) || null,
+      }));
       
       res.json(usersWithRoles);
     } catch (error) {

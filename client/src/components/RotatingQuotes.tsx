@@ -168,7 +168,7 @@ export function RotatingQuotes() {
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [currentRowIndex, currentCategoryIndex, currentQuote, quotesData, updateBookmarkMutation]);
+  }, [currentRowIndex, currentCategoryIndex, currentQuote, quotesData]);
 
   // Handle visibility changes - pause when tab is hidden
   useEffect(() => {
@@ -185,13 +185,15 @@ export function RotatingQuotes() {
 
   // Save bookmark on unmount using refs to avoid stale closures
   useEffect(() => {
+    const mutation = updateBookmarkMutation;
     return () => {
       // Use refs to get the latest values at cleanup time
-      updateBookmarkMutation.mutate({
+      mutation.mutate({
         rowIndex: currentRowIndexRef.current,
         categoryIndex: currentCategoryIndexRef.current,
       });
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty deps - only runs on mount/unmount
 
   if (!currentQuote) {

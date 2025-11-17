@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { parseTOC, isClauseNumber, CLAUSE_NUMBER_PATTERN } from "@/lib/tocParser";
+import { parseTOC, isClauseNumber, CLAUSE_NUMBER_PATTERN, findBestClauseMatch } from "@/lib/tocParser";
 
 export default function DebugTOC() {
   const [testText, setTestText] = useState(
@@ -30,18 +30,26 @@ export default function DebugTOC() {
     const found: Array<{
       match: string;
       isValid: boolean;
-      inTOC: boolean;
+      exactMatch: boolean;
+      fallbackMatch: boolean;
+      matchedClause?: string;
       heading?: string;
     }> = [];
     
     let match;
     while ((match = referencePattern.exec(text)) !== null) {
       const clauseNum = match[1];
+      const isValid = isClauseNumber(clauseNum);
+      const exactMatch = clauseMap.has(clauseNum);
+      const bestMatch = isValid ? findBestClauseMatch(clauseNum, clauseMap) : null;
+      
       found.push({
         match: clauseNum,
-        isValid: isClauseNumber(clauseNum),
-        inTOC: clauseMap.has(clauseNum),
-        heading: clauseMap.get(clauseNum),
+        isValid,
+        exactMatch,
+        fallbackMatch: bestMatch !== null && !exactMatch,
+        matchedClause: bestMatch?.number,
+        heading: bestMatch?.heading,
       });
     }
     
@@ -121,17 +129,33 @@ export default function DebugTOC() {
                   <div
                     key={i}
                     className={`p-2 rounded border text-sm ${
-                      ref.inTOC
+                      ref.exactMatch
                         ? "bg-green-50 dark:bg-green-950 border-green-300"
+                        : ref.fallbackMatch
+                        ? "bg-blue-50 dark:bg-blue-950 border-blue-300"
                         : "bg-red-50 dark:bg-red-950 border-red-300"
                     }`}
                   >
                     <div className="font-mono font-bold">{ref.match}</div>
                     <div className="text-xs space-y-1 mt-1">
                       <div>Valid pattern: {ref.isValid ? "✓" : "✗"}</div>
-                      <div>In TOC: {ref.inTOC ? "✓" : "✗"}</div>
-                      {ref.heading && <div>Heading: {ref.heading}</div>}
-                      {!ref.inTOC && <div className="text-red-600 font-medium">⚠️ Will NOT show tooltip</div>}
+                      <div>Exact match in TOC: {ref.exactMatch ? "✓" : "✗"}</div>
+                      {ref.fallbackMatch && (
+                        <div className="text-blue-600 font-medium">
+                          🔄 Using parent clause: {ref.matchedClause}
+                        </div>
+                      )}
+                      {ref.heading && (
+                        <div className="bg-white dark:bg-gray-800 p-1 rounded">
+                          <span className="font-medium">Heading:</span> {ref.heading}
+                        </div>
+                      )}
+                      {!ref.exactMatch && !ref.fallbackMatch && (
+                        <div className="text-red-600 font-medium">⚠️ Will NOT show tooltip</div>
+                      )}
+                      {(ref.exactMatch || ref.fallbackMatch) && (
+                        <div className="text-green-600 font-medium">✓ Will show tooltip</div>
+                      )}
                     </div>
                   </div>
                 ))}

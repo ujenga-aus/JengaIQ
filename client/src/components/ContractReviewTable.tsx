@@ -48,7 +48,7 @@ import { CellChatDialog } from "./CellChatDialog";
 import { ContractNoticesDialog } from "./ContractNoticesDialog";
 import { ContractViewerDialog } from "./ContractViewerDialog";
 import { useCompany } from "@/contexts/CompanyContext";
-import { parseTOC, isClauseNumber, CLAUSE_NUMBER_PATTERN } from "@/lib/tocParser";
+import { parseTOC, isClauseNumber, CLAUSE_NUMBER_PATTERN, findBestClauseMatch } from "@/lib/tocParser";
 import { ClauseTooltip } from "./ClauseTooltip";
 import { useClauseTooltips } from "@/hooks/useClauseTooltips";
 
@@ -1561,8 +1561,10 @@ export function ContractReviewTable({
     while ((match = clausePattern.exec(text)) !== null) {
       const clauseNumber = match[1];
       
-      // Only highlight if we have this clause in our map
-      if (isClauseNumber(clauseNumber) && clauseMap.has(clauseNumber)) {
+      // Try to find exact match or parent clause in TOC
+      const clauseMatch = isClauseNumber(clauseNumber) ? findBestClauseMatch(clauseNumber, clauseMap) : null;
+      
+      if (clauseMatch) {
         // Add text before the clause number (even if empty when match.index === 0)
         const textBefore = text.substring(lastIndex, match.index);
         if (textBefore) {
@@ -1570,11 +1572,12 @@ export function ContractReviewTable({
         }
 
         // Add the clause number as a hoverable span with data attribute
+        // Use the matched clause number for the tooltip (could be parent clause)
         // Tooltip is managed by shared useClauseTooltips hook
         parts.push(
           <span
             key={`clause-${keyIndex++}`}
-            data-clause-number={clauseNumber}
+            data-clause-number={clauseMatch.number}
             className="text-purple-600 dark:text-purple-400 underline decoration-dotted cursor-help"
           >
             {clauseNumber}

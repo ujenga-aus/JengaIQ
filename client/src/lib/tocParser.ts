@@ -181,3 +181,72 @@ export function isClauseNumber(text: string): boolean {
   const pattern = new RegExp(`^${CLAUSE_NUMBER_PATTERN}$`);
   return pattern.test(text.trim());
 }
+
+/**
+ * Find the best matching clause from the TOC map
+ * If exact match exists, return it
+ * Otherwise, try parent clauses (e.g., for "2.1(a)" try "2.1", then "2")
+ * 
+ * @param clauseNumber - The clause number to look up (e.g., "2.1(a)")
+ * @param clauseMap - Map of clause numbers to headings from TOC
+ * @returns Object with the matched clause number and heading, or null if no match
+ */
+export function findBestClauseMatch(
+  clauseNumber: string,
+  clauseMap: Map<string, string>
+): { number: string; heading: string } | null {
+  // Try exact match first
+  if (clauseMap.has(clauseNumber)) {
+    return {
+      number: clauseNumber,
+      heading: clauseMap.get(clauseNumber)!
+    };
+  }
+  
+  // Try removing parenthetical suffixes progressively
+  // E.g., "2.1(a)(ii)" → "2.1(a)" → "2.1"
+  let testClause = clauseNumber;
+  while (testClause.includes('(')) {
+    // Remove the last parenthetical
+    testClause = testClause.replace(/\([^)]*\)$/, '');
+    if (clauseMap.has(testClause)) {
+      return {
+        number: testClause,
+        heading: clauseMap.get(testClause)!
+      };
+    }
+  }
+  
+  // Try removing segments from the end
+  // E.g., "2.1.3" → "2.1" → "2"
+  const segments = testClause.split(/[.\-]/);
+  while (segments.length > 1) {
+    segments.pop();
+    const parentClause = segments.join('.');
+    if (clauseMap.has(parentClause)) {
+      return {
+        number: parentClause,
+        heading: clauseMap.get(parentClause)!
+      };
+    }
+  }
+  
+  // Also try with hyphens for cases like "GC-1.2" → "GC-1"
+  const hyphenSegments = testClause.split('-');
+  if (hyphenSegments.length > 1) {
+    const lastSegment = hyphenSegments[hyphenSegments.length - 1];
+    const dotSegments = lastSegment.split('.');
+    while (dotSegments.length > 1) {
+      dotSegments.pop();
+      const testNum = [...hyphenSegments.slice(0, -1), dotSegments.join('.')].join('-');
+      if (clauseMap.has(testNum)) {
+        return {
+          number: testNum,
+          heading: clauseMap.get(testNum)!
+        };
+      }
+    }
+  }
+  
+  return null;
+}

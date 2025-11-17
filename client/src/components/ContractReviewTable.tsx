@@ -2170,41 +2170,35 @@ export function ContractReviewTable({
                                         return (
                                           <div 
                                             key={`${row.id}-approval-row-${idx}`}
-                                            className={`grid grid-cols-[auto_1fr_120px_2fr] gap-2 p-2 border border-border/50 rounded ${bgColor}`}
+                                            className={`flex flex-col gap-2 p-2 border border-border/50 rounded ${bgColor}`}
                                           >
-                                            <div className="flex items-start pt-5 min-w-0">
-                                              <div className="text-xs font-semibold text-muted-foreground">
+                                            <div className="flex items-center gap-2">
+                                              <div className="text-xs font-semibold text-muted-foreground shrink-0">
                                                 v{versionNumber}
-                                              </div>
-                                            </div>
-                                            <div className="min-w-0">
-                                              <div className="text-xs font-semibold text-muted-foreground mb-1">
-                                                Proposed Mitigation
-                                              </div>
-                                              <div className="text-sm text-foreground whitespace-pre-wrap break-words">
-                                                {approval.proposedDeparture || '-'}
-                                              </div>
-                                            </div>
-                                            <div className="min-w-0">
-                                              <div className="text-xs font-semibold text-muted-foreground mb-1">
-                                                Approve/Reject
                                               </div>
                                               <Badge 
                                                 variant={
                                                   approval.status.toLowerCase() === 'approved' ? 'default' : 
-                                                  approval.status.toLowerCase() === 'rejected' ? 'destructive' : 
-                                                  'secondary'
+                                                  approval.status.toLowerCase() === 'rejected' ? 'destructive' : 'secondary'
                                                 }
-                                                className="capitalize text-xs"
+                                                className="capitalize text-xs shrink-0"
                                               >
                                                 {approval.status}
                                               </Badge>
                                             </div>
-                                            <div className="min-w-0">
-                                              <div className="text-xs font-semibold text-muted-foreground mb-1">
+                                            <div className="space-y-1">
+                                              <div className="text-xs font-semibold text-muted-foreground">
+                                                Proposed Mitigation
+                                              </div>
+                                              <div className="text-sm text-foreground break-words">
+                                                {approval.proposedDeparture || '-'}
+                                              </div>
+                                            </div>
+                                            <div className="space-y-1">
+                                              <div className="text-xs font-semibold text-muted-foreground">
                                                 DOA Comments
                                               </div>
-                                              <div className="text-sm text-foreground whitespace-pre-wrap break-words">
+                                              <div className="text-sm text-foreground break-words">
                                                 {approval.reviewComments || '-'}
                                               </div>
                                             </div>

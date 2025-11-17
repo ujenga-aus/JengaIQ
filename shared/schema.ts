@@ -1469,6 +1469,7 @@ export const boqRevisions = pgTable("boq_revisions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({
   projectIdx: index("boq_revisions_project_idx").on(table.projectId),
+  projectActiveIdx: index("boq_revisions_project_active_idx").on(table.projectId, table.isActive),
   // Ensure unique revision number per project
   uniqProjectRevision: unique().on(table.projectId, table.revisionNumber),
 }));
@@ -1596,7 +1597,7 @@ export const boqItems = pgTable("boq_items", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
-  revisionIdx: index("boq_items_revision_idx").on(table.revisionId),
+  revisionSortingIdx: index("boq_items_revision_sorting_idx").on(table.revisionId, table.sortingIndex),
 }));
 
 export const insertBoqItemSchema = createInsertSchema(boqItems).omit({
@@ -1619,7 +1620,7 @@ export const globalVariables = pgTable("global_variables", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
-  projectIdx: index("global_variables_project_idx").on(table.projectId),
+  projectVariableNameIdx: index("global_variables_project_variable_name_idx").on(table.projectId, table.variableName),
   uniqueVariableNamePerProject: unique("global_variables_project_variable_unique").on(table.projectId, table.variableName)
 }));
 

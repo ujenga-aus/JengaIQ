@@ -26,6 +26,7 @@ import CompanyDetail from "@/pages/CompanyDetail";
 import BusinessUnitDetail from "@/pages/BusinessUnitDetail";
 import RiskRegister from "@/pages/RiskRegister";
 import EDiscovery from "@/pages/eDiscovery";
+import DebugTOC from "@/pages/DebugTOC";
 import NotFound from "@/pages/not-found";
 
 function AuthenticatedRouter() {
@@ -41,6 +42,7 @@ function AuthenticatedRouter() {
       <Route path="/risks" component={RiskRegister} />
       <Route path="/risk-register" component={RiskRegister} />
       <Route path="/ediscovery" component={EDiscovery} />
+      <Route path="/debug-toc" component={DebugTOC} />
       <Route path="/companies" component={Companies as any} />
       <Route path="/companies/:id" component={CompanyDetail} />
       <Route path="/business-units/:id" component={BusinessUnitDetail} />

@@ -100,7 +100,7 @@ export function AppHeader() {
           <Button
             variant="ghost"
             size="sm"
-            className={`rounded-none border-0 border-b-2 ${
+            className={`text-sm rounded-none border-0 border-b-2 ${
               location === "/dashboard"
                 ? "border-b-primary text-primary" 
                 : "border-b-transparent text-muted-foreground hover:text-foreground"
@@ -114,7 +114,7 @@ export function AppHeader() {
           <Button
             variant="ghost"
             size="sm"
-            className={`rounded-none border-0 border-b-2 ${
+            className={`text-sm rounded-none border-0 border-b-2 ${
               location === "/proj" || location.startsWith("/proj")
                 ? "border-b-primary text-primary" 
                 : "border-b-transparent text-muted-foreground hover:text-foreground"
@@ -128,7 +128,7 @@ export function AppHeader() {
           <Button
             variant="ghost"
             size="sm"
-            className={`rounded-none border-0 border-b-2 ${
+            className={`text-sm rounded-none border-0 border-b-2 ${
               location === "/companies" || (location.startsWith("/companies") && !location.includes("/companies/"))
                 ? "border-b-primary text-primary" 
                 : "border-b-transparent text-muted-foreground hover:text-foreground"

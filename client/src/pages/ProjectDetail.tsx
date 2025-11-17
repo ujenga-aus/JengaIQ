@@ -131,24 +131,26 @@ export default function ProjectDetail() {
           <TabsTrigger value="settings" data-testid="tab-settings" className="text-sm font-medium rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:text-blue-600 data-[state=active]:shadow-none">Settings</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-2">
-          <PhaseTimeline
-            tenderStart={project.tenderStartDate ? formatDate(project.tenderStartDate) : ""}
-            tenderEnd={project.tenderEndDate ? formatDate(project.tenderEndDate) : ""}
-            deliveryStart={project.deliveryStartDate ? formatDate(project.deliveryStartDate) : ""}
-            deliveryEnd={project.deliveryEndDate ? formatDate(project.deliveryEndDate) : ""}
-            defectsPeriodStart={project.defectsPeriodStartDate ? formatDate(project.defectsPeriodStartDate) : ""}
-            defectsPeriodEnd={project.defectsPeriodEndDate ? formatDate(project.defectsPeriodEndDate) : ""}
-            closedStart={project.closedStartDate ? formatDate(project.closedStartDate) : ""}
-            closedEnd={project.closedEndDate ? formatDate(project.closedEndDate) : ""}
-            currentPhase={project.phase as "Tender" | "Delivery" | "Defects Period" | "Closed"}
-            tenderLabel={terminology.tender}
-            deliveryLabel={terminology.delivery}
-            defectsPeriodLabel={terminology.defectsPeriod}
-            closedLabel={terminology.closed}
-          />
+        <TabsContent value="overview" className="flex-1 overflow-auto">
+          <div className="space-y-2 p-2">
+            <PhaseTimeline
+              tenderStart={project.tenderStartDate ? formatDate(project.tenderStartDate) : ""}
+              tenderEnd={project.tenderEndDate ? formatDate(project.tenderEndDate) : ""}
+              deliveryStart={project.deliveryStartDate ? formatDate(project.deliveryStartDate) : ""}
+              deliveryEnd={project.deliveryEndDate ? formatDate(project.deliveryEndDate) : ""}
+              defectsPeriodStart={project.defectsPeriodStartDate ? formatDate(project.defectsPeriodStartDate) : ""}
+              defectsPeriodEnd={project.defectsPeriodEndDate ? formatDate(project.defectsPeriodEndDate) : ""}
+              closedStart={project.closedStartDate ? formatDate(project.closedStartDate) : ""}
+              closedEnd={project.closedEndDate ? formatDate(project.closedEndDate) : ""}
+              currentPhase={project.phase as "Tender" | "Delivery" | "Defects Period" | "Closed"}
+              tenderLabel={terminology.tender}
+              deliveryLabel={terminology.delivery}
+              defectsPeriodLabel={terminology.defectsPeriod}
+              closedLabel={terminology.closed}
+            />
 
-          <RiskSummaryDashboard projectId={projectId!} />
+            <RiskSummaryDashboard projectId={projectId!} />
+          </div>
         </TabsContent>
 
         <TabsContent value="contract" className="h-[calc(100vh-200px)] flex flex-col">

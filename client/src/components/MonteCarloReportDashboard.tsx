@@ -488,8 +488,9 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             {/* Frequency Distribution Histogram */}
             <Card className="p-6">
               <h3 className="font-semibold mb-4">B. Frequency Distribution</h3>
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={histogramData}>
+              <div className="w-full h-[400px]">
+                <ResponsiveContainer width="100%" height={400}>
+                  <BarChart data={histogramData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="binMid"
@@ -545,6 +546,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   />
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             </Card>
           </div>
 
@@ -559,8 +561,9 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                 <p className="text-sm text-muted-foreground mb-4">
                   Top drivers of output uncertainty (click a risk to view details)
                 </p>
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart 
+                <div className="w-full h-[400px]">
+                  <ResponsiveContainer width="100%" height={400}>
+                    <BarChart 
                   data={tornadoData} 
                   layout="vertical"
                   margin={{ left: 10, right: 30, top: 5, bottom: 20 }}
@@ -600,14 +603,16 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   />
                 </BarChart>
               </ResponsiveContainer>
+                </div>
               </CardContent>
             </Card>
 
             {/* S-Curve (Exceedance Curve) */}
             <Card className="p-6">
               <h3 className="font-semibold mb-4">C. Exceedance Curve - Probability of Exceeding Thresholds</h3>
-              <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={sCurveData}>
+              <div className="w-full h-[400px]">
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={sCurveData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="cost"
@@ -647,6 +652,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   <Line type="monotone" dataKey="probability" stroke="#2563eb" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
+              </div>
             </Card>
           </div>
 

@@ -586,35 +586,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .limit(1);
         
         if (snapshot.length > 0) {
-          // Get revision rows with snapshot row info
+          // PERFORMANCE FIX: Batch fetch revision rows and their cells
           const revisionRows = await db
             .select()
             .from(contractReviewRevisionRows)
             .where(eq(contractReviewRevisionRows.revisionId, activeRevision.id))
             .orderBy(contractReviewRevisionRows.rowIndex);
           
-          // For each revision row, get snapshot cells and revision cells
-          rows = await Promise.all(revisionRows.map(async (revRow) => {
-            // Get snapshot cells (non-editable template columns)
-            const snapshotCells = await db
+          if (revisionRows.length > 0) {
+            // Batch fetch all cells upfront (eliminates N+1)
+            const { inArray } = await import('drizzle-orm');
+            const revRowIds = revisionRows.map(r => r.id);
+            const snapshotRowIds = revisionRows.map(r => r.snapshotRowId);
+            
+            const allSnapshotCells = await db
               .select()
               .from(contractReviewSnapshotCells)
-              .where(eq(contractReviewSnapshotCells.snapshotRowId, revRow.snapshotRowId))
+              .where(inArray(contractReviewSnapshotCells.snapshotRowId, snapshotRowIds))
               .orderBy(contractReviewSnapshotCells.orderIndex);
             
-            // Get revision cells (editable + review columns)
-            const revisionCells = await db
+            const allRevisionCells = await db
               .select()
               .from(contractReviewRevisionCells)
-              .where(eq(contractReviewRevisionCells.revisionRowId, revRow.id));
+              .where(inArray(contractReviewRevisionCells.revisionRowId, revRowIds));
             
-            return {
+            // Group cells by row
+            const snapshotCellsByRow = new Map<string, typeof allSnapshotCells>();
+            for (const cell of allSnapshotCells) {
+              if (!snapshotCellsByRow.has(cell.snapshotRowId)) {
+                snapshotCellsByRow.set(cell.snapshotRowId, []);
+              }
+              snapshotCellsByRow.get(cell.snapshotRowId)!.push(cell);
+            }
+            
+            const revisionCellsByRow = new Map<string, typeof allRevisionCells>();
+            for (const cell of allRevisionCells) {
+              if (!revisionCellsByRow.has(cell.revisionRowId)) {
+                revisionCellsByRow.set(cell.revisionRowId, []);
+              }
+              revisionCellsByRow.get(cell.revisionRowId)!.push(cell);
+            }
+            
+            // Assemble rows
+            rows = revisionRows.map(revRow => ({
               id: revRow.id,
               rowIndex: revRow.rowIndex,
-              snapshotCells,
-              revisionCells,
-            };
-          }));
+              snapshotCells: snapshotCellsByRow.get(revRow.snapshotRowId) || [],
+              revisionCells: revisionCellsByRow.get(revRow.id) || [],
+            }));
+          }
         }
       }
       

@@ -52,8 +52,8 @@ export function detectLogicalParts(normalizedText: string): DetectedPart[] {
     {
       type: 'TOC',
       patterns: [
-        /^(table\s+of\s+)?contents?\s*$/im,
-        /^index\s*$/im,
+        /^(table\s+of\s+)?contents?(\s|$)/im,
+        /^index(\s|$)/im,
       ],
       priority: 1
     },

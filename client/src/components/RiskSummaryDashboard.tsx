@@ -163,8 +163,8 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
             <CardTitle className="text-xs font-bold">Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="w-full h-[220px]">
-              <ResponsiveContainer width="100%" height={220}>
+            <div className="w-full h-[220px] min-h-[220px] relative">
+              <ResponsiveContainer width="99%" height="100%">
                 <BarChart data={histogramData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis 
@@ -205,8 +205,8 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
           </CardHeader>
           <CardContent className="px-[15px]">
             {tornadoData.length > 0 ? (
-              <div className="w-full h-[220px]">
-                <ResponsiveContainer width="100%" height={220}>
+              <div className="w-full h-[220px] min-h-[220px] relative">
+                <ResponsiveContainer width="99%" height="100%">
                   <BarChart 
                   data={tornadoData} 
                   layout="vertical"

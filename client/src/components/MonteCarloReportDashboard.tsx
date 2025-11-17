@@ -488,8 +488,8 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             {/* Frequency Distribution Histogram */}
             <Card className="p-6">
               <h3 className="font-semibold mb-4">B. Frequency Distribution</h3>
-              <div className="w-full h-[400px]">
-                <ResponsiveContainer width="100%" height={400}>
+              <div className="w-full h-[400px] min-h-[400px] relative">
+                <ResponsiveContainer width="99%" height="100%">
                   <BarChart data={histogramData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
@@ -561,8 +561,8 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                 <p className="text-sm text-muted-foreground mb-4">
                   Top drivers of output uncertainty (click a risk to view details)
                 </p>
-                <div className="w-full h-[400px]">
-                  <ResponsiveContainer width="100%" height={400}>
+                <div className="w-full h-[400px] min-h-[400px] relative">
+                  <ResponsiveContainer width="99%" height="100%">
                     <BarChart 
                   data={tornadoData} 
                   layout="vertical"
@@ -610,8 +610,8 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             {/* S-Curve (Exceedance Curve) */}
             <Card className="p-6">
               <h3 className="font-semibold mb-4">C. Exceedance Curve - Probability of Exceeding Thresholds</h3>
-              <div className="w-full h-[400px]">
-                <ResponsiveContainer width="100%" height={400}>
+              <div className="w-full h-[400px] min-h-[400px] relative">
+                <ResponsiveContainer width="99%" height="100%">
                   <LineChart data={sCurveData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis

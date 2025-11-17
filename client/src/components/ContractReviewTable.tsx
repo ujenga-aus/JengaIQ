@@ -1943,7 +1943,7 @@ export function ContractReviewTable({
                     >
                     <tr>
                       <th 
-                        className="px-4 py-3 text-center text-sm font-medium border-r border-border"
+                        className="px-4 py-1 text-center text-sm font-medium border-r border-border"
                         style={{ color: 'hsl(var(--table-header-fg))' }}
                       >
                         Item<br/>No.
@@ -1951,7 +1951,7 @@ export function ContractReviewTable({
                       {allColumns.map((col) => (
                         <th 
                           key={col.id} 
-                          className="relative px-4 py-3 text-center text-sm font-medium border-r border-border"
+                          className="relative px-4 py-1 text-center text-sm font-medium border-r border-border"
                           style={{ color: 'hsl(var(--table-header-fg))' }}
                         >
                           <div className="flex items-center justify-center gap-2">

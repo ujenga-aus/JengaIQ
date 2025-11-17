@@ -2017,6 +2017,30 @@ export const insertContractParsingJobStepSchema = createInsertSchema(contractPar
 export type InsertContractParsingJobStep = z.infer<typeof insertContractParsingJobStepSchema>;
 export type ContractParsingJobStep = typeof contractParsingJobSteps.$inferSelect;
 
+// Extended TOC - Comprehensive list of all clause headings detected in the contract body
+export const extendedToc = pgTable("extended_toc", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  parsedAssetId: varchar("parsed_asset_id").notNull().references(() => contractParsedAssets.id, { onDelete: "cascade" }),
+  clauseNumber: text("clause_number").notNull(), // e.g., "1", "1.1", "2.3.4", "25.1(b)"
+  description: text("description").notNull(), // Clause heading text (without the clause number)
+  pageNo: integer("page_no").notNull(), // Page number where this heading appears
+  orderIndex: integer("order_index").notNull(), // Display order (0, 1, 2...) for correct hierarchical sorting
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  parsedAssetIdx: index("extended_toc_parsed_asset_idx").on(table.parsedAssetId),
+  clauseNumberIdx: index("extended_toc_clause_number_idx").on(table.parsedAssetId, table.clauseNumber),
+  orderIdx: index("extended_toc_order_idx").on(table.parsedAssetId, table.orderIndex),
+  uniqueAssetClause: unique("extended_toc_asset_clause_unique").on(table.parsedAssetId, table.clauseNumber),
+}));
+
+export const insertExtendedTocSchema = createInsertSchema(extendedToc).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertExtendedToc = z.infer<typeof insertExtendedTocSchema>;
+export type ExtendedToc = typeof extendedToc.$inferSelect;
+
 // === DASHBOARD QUOTES SYSTEM ===
 
 // Quote Categories - ordered categories for rotating display

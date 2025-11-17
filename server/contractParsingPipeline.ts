@@ -20,13 +20,15 @@ import {
   contractTextChunks,
   contractParsingJobs,
   contractParsingJobSteps,
-  contractReviewDocuments
+  contractReviewDocuments,
+  extendedToc
 } from '@shared/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { extractContractText, normalizeContractText } from './contractTextExtraction';
 import { detectLogicalParts } from './contractPartDetection';
 import { chunkAllParts } from './contractParsingChunking';
 import { summarizeChunk } from './contractClaudeSummarization';
+import { storeExtendedToc } from './extendedTocFromSummaries';
 import { ObjectStorageService } from './objectStorage';
 import crypto from 'crypto';
 
@@ -386,6 +388,11 @@ export async function processContractRevision(revisionId: string): Promise<void>
       .set({ tokenUsageTotal: totalTokens })
       .where(eq(contractParsedAssets.id, parsedAsset.id));
     
+    // === PHASE 9: Build Extended TOC from Claude Summaries ===
+    console.log(`[ContractParsing] Building extended TOC from Claude summaries...`);
+    const tocEntriesCount = await storeExtendedToc(parsedAsset.id);
+    console.log(`[ContractParsing] Stored ${tocEntriesCount} clause headings in extended TOC`);
+    
     await db
       .update(contractReviewDocuments)
       .set({ parsedAssetId: parsedAsset.id })
@@ -421,17 +428,22 @@ export async function processContractRevision(revisionId: string): Promise<void>
         console.log(`[ContractParsing] Cleaning up partially created parsed asset: ${failedJob.parsedAssetId}`);
         
         // Delete in correct order to respect foreign key constraints:
-        // 1. Delete text chunks (reference logicalPartId)
+        // 1. Delete extended TOC entries (reference parsedAssetId)
+        await db
+          .delete(extendedToc)
+          .where(eq(extendedToc.parsedAssetId, failedJob.parsedAssetId));
+        
+        // 2. Delete text chunks (reference logicalPartId)
         await db
           .delete(contractTextChunks)
           .where(eq(contractTextChunks.parsedAssetId, failedJob.parsedAssetId));
         
-        // 2. Delete logical parts (reference parsedAssetId)
+        // 3. Delete logical parts (reference parsedAssetId)
         await db
           .delete(contractLogicalParts)
           .where(eq(contractLogicalParts.parsedAssetId, failedJob.parsedAssetId));
         
-        // 3. Delete parsed asset (parent record)
+        // 4. Delete parsed asset (parent record)
         await db
           .delete(contractParsedAssets)
           .where(eq(contractParsedAssets.id, failedJob.parsedAssetId));

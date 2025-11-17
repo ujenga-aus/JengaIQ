@@ -1,0 +1,129 @@
+Here's the revised AI prompt optimized for Mermaid flowchart creation:
+
+CONTRACT NOTICE EXTRACTION PROMPT (FOR MERMAID FLOWCHART)
+Task: Analyze the attached contract and create a comprehensive list of ALL notice requirements, including explicit notices, implied notice obligations, recurring notices, and the complete flow-on effects of each notice for flowchart mapping.
+Instructions:
+
+Identify ALL notice-triggering language, including but not limited to:
+
+"Notice" / "notify" / "notification"
+"Inform" / "information"
+"Advise" / "advice"
+"Communicate" / "communication"
+"Alert"
+"Report" / "reporting"
+"Disclose" / "disclosure"
+"Submit" / "submission"
+"Provide written..." / "in writing"
+"Shall give..." / "must give..."
+"Warn" / "warning"
+"Request" / "application"
+
+
+For EACH notice requirement identified, extract:
+
+Clause Reference: Clause number and title
+Notice ID: Create a unique identifier (e.g., VAR-01, DELAY-01, TERM-01)
+Trigger Event: What circumstances require the notice
+Party Giving Notice: Who must provide the notice
+Party Receiving Notice: Who must receive the notice
+Timeframe: When the notice must be given (e.g., "immediately," "within 7 days," "prior to")
+Form/Method: How it must be delivered (written, email, registered mail, etc.)
+Content Requirements: What information must be included
+Recurring: Is this a one-time or recurring notice? If recurring, what is the frequency?
+
+
+CRITICAL: Map the complete FLOW-ON EFFECTS for each notice:
+
+Response Required: Must the recipient respond? If yes:
+
+Response timeframe
+Response notice ID
+What the response must contain
+
+
+Subsequent Actions: What happens next? Include:
+
+Decision points (approve/reject/request more info)
+Alternative pathways based on responses
+Follow-up notices triggered by this notice
+Meetings/consultations required
+Dispute resolution triggers
+
+
+Consequences:
+
+If notice given properly
+If notice not given or late
+If response not provided
+
+
+Loop-backs: Does this notice create a cycle (e.g., notice → response → revised notice)?
+
+
+Special attention to notices related to:
+
+Variations/Change Orders
+Claims/Disputes
+Delays/Extensions of Time
+Force Majeure events
+Defects/Non-conformance
+Termination/Suspension
+Payment issues
+Safety incidents
+Site conditions
+Breaches/Defaults
+Insurance claims
+Progress reporting (recurring)
+Monthly/periodic submissions (recurring)
+
+
+Output Format - TWO PARTS:
+
+PART A: Notice Inventory Table
+| Notice ID | Clause Ref | Trigger Event | Giver | Recipient | Timeframe | Method | Recurring? | Content Required |
+PART B: Notice Flow Map (Pre-Mermaid Structure)
+For each notice, provide:
+NOTICE ID: [ID]
+TRIGGER: [Event]
+↓
+STEP 1: [Party] gives notice within [timeframe]
+↓
+STEP 2: [Party] receives notice
+↓
+DECISION POINT: [What must recipient decide/do?]
+   → Option A: [Action pathway 1]
+      → Leads to: [Notice ID or outcome]
+   → Option B: [Action pathway 2]
+      → Leads to: [Notice ID or outcome]
+   → Option C: [If no response within timeframe]
+      → Leads to: [Consequence or Notice ID]
+↓
+LOOP: [If applicable, note any recurring cycles]
+↓
+END STATE: [Final outcome or ongoing process]
+
+Create a MERMAID FLOWCHART for the 5 most complex notice chains
+Use proper Mermaid syntax with:
+
+
+Start/End nodes (stadium shape)
+Process boxes (rectangle)
+Decision diamonds
+Subgraphs for each major notice chain
+Clear labels and relationships
+
+Example Mermaid format:
+mermaidgraph TD
+    Start([Trigger Event]) --> N1[Party A gives Notice]
+    N1 --> N2{Party B Response?}
+    N2 -->|Approved| N3[Work Proceeds]
+    N2 -->|Rejected| N4[Party A gives Revised Notice]
+    N2 -->|No Response in 7 days| N5[Deemed Approved]
+    N4 --> N1
+Provide summary showing:
+
+Total notices identified
+Total recurring notices
+Most complex notice chains (most steps)
+Critical path notices (those that trigger multiple flow-ons)

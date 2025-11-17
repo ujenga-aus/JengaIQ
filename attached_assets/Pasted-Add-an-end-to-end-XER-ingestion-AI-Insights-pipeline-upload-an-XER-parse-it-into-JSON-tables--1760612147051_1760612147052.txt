@@ -1,0 +1,618 @@
+Add an end-to-end XER ingestion + “AI Insights” pipeline: upload an XER, parse it into JSON tables (server-side), run schedule hygiene heuristics, and surface insights + a lightweight natural-language Q&A stub in the UI. This gives us immediate value and a foundation to plug in embeddings/LLMs later.
+
+Patch
+
+// server/db/schema.ts
+import { pgTable, serial, integer, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+
+export const xerImports = pgTable("xer_imports", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), // assumes companies table exists
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }), // assumes projects table exists
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  size: integer("size").notNull(),
+  uploadedByUserId: integer("uploaded_by_user_id").notNull().references(() => users.id, { onDelete: "set null" }),
+  tables: jsonb("tables").notNull(), // generic parsed tables keyed by table name
+  meta: jsonb("meta").notNull().default({}), // optional metadata (P6 version, project name, dates)
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const xerInsights = pgTable("xer_insights", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  importId: integer("import_id").notNull().references(() => xerImports.id, { onDelete: "cascade" }),
+  // normalized, queryable insights
+  score: integer("score").notNull(), // 0-100 quality score
+  summary: text("summary").notNull(),
+  details: jsonb("details").notNull(), // {openEnds:[...], longDurations:[...], hardConstraints:[...], ...}
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// (Optional) relations if you’re using them elsewhere
+export const xerImportsRelations = relations(xerImports, ({ many }) => ({
+  insights: many(xerInsights),
+}));
+
+export const xerInsightsRelations = relations(xerInsights, ({ one }) => ({
+  import: one(xerImports, { fields: [xerInsights.importId], references: [xerImports.id] }),
+}));
+
+// server/utils/parseXER.ts
+import { createReadStream } from "node:fs";
+import readline from "node:readline";
+
+export type XERTables = Record<
+  string,
+  { fields: string[]; rows: Record<string, string>[] }
+>;
+
+/**
+ * Minimal, robust XER parser (Primavera P6). It treats unknown tables generically.
+ * XER format uses directives:
+ *   %T <TABLE_NAME>
+ *   %F <TAB-DELIMITED FIELD NAMES>
+ *   <TAB-DELIMITED ROW VALUES>
+ */
+export async function parseXER(filePath: string): Promise<XERTables> {
+  const rl = readline.createInterface({
+    input: createReadStream(filePath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+
+  const tables: XERTables = {};
+  let currentTable: string | null = null;
+  let currentFields: string[] = [];
+
+  for await (const rawLine of rl) {
+    const line = rawLine.replace(/\r$/, "");
+    if (!line) continue;
+
+    if (line.startsWith("%T")) {
+      currentTable = line.slice(2).trim();
+      tables[currentTable] = { fields: [], rows: [] };
+      currentFields = [];
+      continue;
+    }
+    if (line.startsWith("%F")) {
+      if (!currentTable) continue;
+      currentFields = line.slice(2).split("\t").map((s) => s.trim());
+      tables[currentTable].fields = currentFields;
+      continue;
+    }
+    // Data row
+    if (currentTable && currentFields.length) {
+      const values = line.split("\t");
+      const row: Record<string, string> = {};
+      for (let i = 0; i < currentFields.length; i++) {
+        row[currentFields[i]] = values[i] ?? "";
+      }
+      tables[currentTable].rows.push(row);
+    }
+  }
+  return tables;
+}
+
+/** Helpers to extract common logical tables with sensible fallbacks */
+export function getActivities(tables: XERTables) {
+  // P6 often uses TASK, TASKRSRC, TASKPRED, WBS
+  const task = tables["TASK"]?.rows ?? [];
+  return task;
+}
+export function getRelationships(tables: XERTables) {
+  const preds = tables["TASKPRED"]?.rows ?? [];
+  return preds;
+}
+export function getWBS(tables: XERTables) {
+  return tables["WBS"]?.rows ?? [];
+}
+
+// server/ai/xerInsights.ts
+import { differenceInCalendarDays, parseISO } from "date-fns";
+import type { XERTables } from "../utils/parseXER";
+
+type InsightDetail = {
+  type: string;
+  severity: "info" | "warn" | "error";
+  message: string;
+  ref?: Record<string, unknown>;
+};
+
+export type ComputedInsights = {
+  score: number;
+  summary: string;
+  details: {
+    openEnds: InsightDetail[];
+    longDurations: InsightDetail[];
+    hardConstraints: InsightDetail[];
+    missingLogic: InsightDetail[];
+    outOfSequenceRisk: InsightDetail[];
+  };
+};
+
+export function computeInsights(tables: XERTables): ComputedInsights {
+  const tasks = tables["TASK"]?.rows ?? [];
+  const preds = tables["TASKPRED"]?.rows ?? [];
+  const byTaskId = new Map(tasks.map((t) => [t.task_id, t]));
+  const succByPred = new Map<string, string[]>();
+  const predBySucc = new Map<string, string[]>();
+  for (const r of preds) {
+    const pred = r.pred_task_id;
+    const succ = r.task_id;
+    if (!succByPred.has(pred)) succByPred.set(pred, []);
+    if (!predBySucc.has(succ)) predBySucc.set(succ, []);
+    succByPred.get(pred)!.push(succ);
+    predBySucc.get(succ)!.push(pred);
+  }
+
+  const openEnds: InsightDetail[] = [];
+  const longDurations: InsightDetail[] = [];
+  const hardConstraints: InsightDetail[] = [];
+  const missingLogic: InsightDetail[] = [];
+
+  for (const t of tasks) {
+    const id = t.task_id;
+    const name = t.task_name || t.task_code || id;
+    const dur = Number(t.target_drtn_hr_cnt ?? t.remain_drtn_hr_cnt ?? 0);
+    if (!(predBySucc.get(id)?.length)) {
+      openEnds.push({
+        type: "openStart",
+        severity: "warn",
+        message: `Activity "${name}" has no predecessors.`,
+        ref: { task_id: id },
+      });
+    }
+    if (!(succByPred.get(id)?.length)) {
+      openEnds.push({
+        type: "openFinish",
+        severity: "warn",
+        message: `Activity "${name}" has no successors.`,
+        ref: { task_id: id },
+      });
+    }
+    if (dur > 8 * 20) {
+      // longer than ~1 month @ 8h/day
+      longDurations.push({
+        type: "longDuration",
+        severity: "warn",
+        message: `Activity "${name}" has long duration (~${Math.round(dur / 8)}d). Consider breaking down.`,
+        ref: { task_id: id, hours: dur },
+      });
+    }
+    const ctype = t.cstr_type;
+    if (ctype && ["CS", "CF", "MS", "MF"].includes(ctype)) {
+      hardConstraints.push({
+        type: "hardConstraint",
+        severity: "error",
+        message: `Hard constraint (${constraintLabel(ctype)}) on "${name}".`,
+        ref: { task_id: id, cstr_type: ctype, cstr_date: t.cstr_date },
+      });
+    }
+    if (!predBySucc.get(id)?.length && !succByPred.get(id)?.length) {
+      missingLogic.push({
+        type: "noLogic",
+        severity: "error",
+        message: `Activity "${name}" is unlinked (no predecessors or successors).`,
+        ref: { task_id: id },
+      });
+    }
+  }
+
+  // crude score: start at 100 and subtract weighted issues
+  let score = 100;
+  score -= openEnds.length * 1;
+  score -= longDurations.length * 1;
+  score -= hardConstraints.length * 3;
+  score -= missingLogic.length * 2;
+  if (score < 0) score = 0;
+
+  const summary = `Quality score ${score}/100. Open ends: ${openEnds.length}, long durations: ${longDurations.length}, hard constraints: ${hardConstraints.length}, unlinked: ${missingLogic.length}.`;
+
+  return {
+    score,
+    summary,
+    details: {
+      openEnds,
+      longDurations,
+      hardConstraints,
+      missingLogic,
+      outOfSequenceRisk: [], // TODO: detect based on actuals vs logic
+    },
+  };
+}
+
+function constraintLabel(code: string) {
+  // P6 codes: CS=Start On, CF=Finish On, MS=Start On or After, MF=Finish On or Before, etc.
+  const map: Record<string, string> = {
+    CS: "Start On (hard)",
+    CF: "Finish On (hard)",
+    MS: "Start On or After",
+    MF: "Finish On or Before",
+    SNET: "Start No Earlier Than",
+    FNLT: "Finish No Later Than",
+  };
+  return map[code] ?? code;
+}
+
+// server/routes/xer.ts
+import { Router } from "express";
+import multer from "multer";
+import { z } from "zod";
+import { and, eq } from "drizzle-orm";
+import { db } from "../db";
+import { xerImports, xerInsights } from "../db/schema";
+import { parseXER } from "../utils/parseXER";
+import { computeInsights } from "../ai/xerInsights";
+import { requireAuth } from "../middleware/auth";
+import { getTenantContext } from "../middleware/tenant";
+import type { Request, Response } from "express";
+
+const upload = multer({ dest: "uploads/" });
+
+const paramsSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+});
+
+export const xerRouter = Router();
+
+// Upload & parse XER
+xerRouter.post(
+  "/projects/:projectId/xer/import",
+  requireAuth,
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    const { companyId } = getTenantContext(req); // from session
+    const { projectId } = paramsSchema.parse(req.params);
+    if (!req.file) return res.status(400).json({ error: "file required" });
+
+    // Basic guardrails
+    if (!req.file.originalname.toLowerCase().endsWith(".xer")) {
+      return res.status(400).json({ error: "Only .xer files are supported for now." });
+    }
+
+    const tables = await parseXER(req.file.path);
+    // Optional: extract meta
+    const meta = {
+      projectName: guessProjectName(tables),
+      p6Version: guessP6Version(tables),
+    };
+
+    const [inserted] = await db
+      .insert(xerImports)
+      .values({
+        companyId,
+        projectId,
+        filename: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        uploadedByUserId: req.user!.id,
+        tables,
+        meta,
+      })
+      .returning();
+
+    // Compute and persist insights immediately
+    const computed = computeInsights(tables);
+    await db.insert(xerInsights).values({
+      companyId,
+      projectId,
+      importId: inserted.id,
+      score: computed.score,
+      summary: computed.summary,
+      details: computed.details as unknown as object,
+    });
+
+    return res.json({ importId: inserted.id, meta, insights: computed });
+  }
+);
+
+// Get insights for an import
+xerRouter.get(
+  "/projects/:projectId/xer/:importId/insights",
+  requireAuth,
+  async (req, res) => {
+    const { companyId } = getTenantContext(req);
+    const params = z.object({
+      projectId: z.coerce.number().int().positive(),
+      importId: z.coerce.number().int().positive(),
+    }).parse(req.params);
+
+    const rows = await db
+      .select()
+      .from(xerInsights)
+      .where(
+        and(
+          eq(xerInsights.companyId, companyId),
+          eq(xerInsights.projectId, params.projectId),
+          eq(xerInsights.importId, params.importId)
+        )
+      )
+      .limit(1);
+
+    if (!rows.length) return res.status(404).json({ error: "Insights not found" });
+    return res.json(rows[0]);
+  }
+);
+
+// Simple "Ask your schedule" stub (rules-based; plug LLM later)
+xerRouter.post(
+  "/projects/:projectId/xer/:importId/ask",
+  requireAuth,
+  async (req, res) => {
+    const body = z.object({ question: z.string().min(3) }).parse(req.body);
+    const { companyId } = getTenantContext(req);
+    const params = z.object({
+      projectId: z.coerce.number().int().positive(),
+      importId: z.coerce.number().int().positive(),
+    }).parse(req.params);
+
+    const [imp] = await db
+      .select({ tables: xerImports.tables })
+      .from(xerImports)
+      .where(
+        and(
+          eq(xerImports.companyId, companyId),
+          eq(xerImports.projectId, params.projectId),
+          eq(xerImports.id, params.importId)
+        )
+      )
+      .limit(1);
+
+    if (!imp) return res.status(404).json({ error: "Import not found" });
+
+    const answer = simpleQA(body.question, imp.tables as any);
+    return res.json({ answer });
+  }
+);
+
+function guessProjectName(tables: any) {
+  // P6 keeps project in PROJWBS/TASK? Fall back to EPS/PROJ tables if present
+  const proj = tables["PROJ"]?.rows?.[0];
+  return proj?.proj_short_name || proj?.proj_name || "Unknown Project";
+}
+function guessP6Version(tables: any) {
+  const ver = tables["PREF"]?.rows?.find((r: any) => r.pref_name === "database_version")?.pref_value;
+  return ver || "Unknown";
+}
+function simpleQA(q: string, tables: any): string {
+  const lc = q.toLowerCase();
+  const tasks = tables["TASK"]?.rows ?? [];
+  if (lc.includes("how many activities")) {
+    return `There are ${tasks.length} activities.`;
+  }
+  if (lc.includes("open ends") || lc.includes("dangling")) {
+    const preds = tables["TASKPRED"]?.rows ?? [];
+    const byPred = new Map<string, number>();
+    const bySucc = new Map<string, number>();
+    for (const r of preds) {
+      byPred.set(r.pred_task_id, (byPred.get(r.pred_task_id) ?? 0) + 1);
+      bySucc.set(r.task_id, (bySucc.get(r.task_id) ?? 0) + 1);
+    }
+    const openStart = tasks.filter((t: any) => !bySucc.get(t.task_id)).length;
+    const openFinish = tasks.filter((t: any) => !byPred.get(t.task_id)).length;
+    return `Open starts: ${openStart}, open finishes: ${openFinish}.`;
+  }
+  if (lc.includes("long") && lc.includes("duration")) {
+    const long = tasks.filter((t: any) => Number(t.target_drtn_hr_cnt ?? 0) > 160);
+    return `${long.length} activities have long duration (> ~1 month).`;
+  }
+  return "I can answer counts about activities, long durations, and open ends today. Ask me things like “How many activities are unlinked?”";
+}
+
+export default xerRouter;
+
+// server/index.ts (append wiring)
+import xerRouter from "./routes/xer";
+// ...
+app.use("/api", xerRouter);
+
+// server/middleware/tenant.ts
+import type { Request } from "express";
+
+// Resolve tenant context from session; NEVER trust client input
+export function getTenantContext(req: Request) {
+  const companyId = req.session?.companyId;
+  if (!companyId) {
+    throw new Error("No company in session");
+  }
+  return { companyId };
+}
+
+// web/src/api/xer.ts
+import { api } from "./client"; // your typed fetch wrapper
+
+export async function uploadXer(projectId: number, file: File) {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post<{ importId: number; meta: any; insights: any }>(
+    `/api/projects/${projectId}/xer/import`,
+    fd,
+    { headers: {} } // fetch will set multipart
+  );
+}
+
+export async function getInsights(projectId: number, importId: number) {
+  return api.get(`/api/projects/${projectId}/xer/${importId}/insights`);
+}
+
+export async function askXer(projectId: number, importId: number, question: string) {
+  return api.post(`/api/projects/${projectId}/xer/${importId}/ask`, { question });
+}
+
+// web/src/routes/project-xer.tsx
+import React from "react";
+import { useParams } from "wouter";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { uploadXer, getInsights, askXer } from "../api/xer";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, Upload, MessageSquare } from "lucide-react";
+
+const schema = z.object({ file: z.instanceof(File) });
+
+export default function ProjectXerPage() {
+  const { projectId } = useParams() as { projectId: string };
+  const qc = useQueryClient();
+  const [importId, setImportId] = React.useState<number | null>(null);
+
+  const formRef = React.useRef<HTMLFormElement>(null);
+
+  const uploadMut = useMutation({
+    mutationFn: async (file: File) => uploadXer(Number(projectId), file),
+    onSuccess: (res) => {
+      setImportId(res.importId);
+      qc.invalidateQueries({ queryKey: ["xer", projectId, "insights", res.importId] });
+    },
+  });
+
+  const insightsQ = useQuery({
+    queryKey: ["xer", projectId, "insights", importId],
+    queryFn: () => getInsights(Number(projectId), importId!),
+    enabled: !!importId,
+    refetchOnWindowFocus: "always",
+  });
+
+  const askForm = useForm<{ question: string }>({
+    resolver: zodResolver(z.object({ question: z.string().min(3) })),
+    defaultValues: { question: "" },
+  });
+  const askMut = useMutation({
+    mutationFn: (q: string) => askXer(Number(projectId), importId!, q),
+  });
+
+  return (
+    <div className="container mx-auto p-6 grid gap-6">
+      <h1 className="text-2xl font-semibold">XER Import & AI Insights</h1>
+
+      <Card className="rounded-2xl shadow-sm">
+        <CardContent className="p-6 flex items-center gap-4">
+          <form
+            ref={formRef}
+            className="flex items-center gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+            }}
+          >
+            <Input
+              type="file"
+              accept=".xer"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadMut.mutate(f);
+              }}
+            />
+            <Button type="button" variant="secondary" onClick={() => formRef.current?.reset()}>
+              Clear
+            </Button>
+            {uploadMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+          </form>
+        </CardContent>
+      </Card>
+
+      {insightsQ.data && (
+        <Card className="rounded-2xl shadow-sm">
+          <CardContent className="p-6 grid gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-medium">Quality score</span>
+              <span className="text-2xl font-bold">{insightsQ.data.score}/100</span>
+            </div>
+            <p className="text-muted-foreground">{insightsQ.data.summary}</p>
+            <div className="grid md:grid-cols-2 gap-4">
+              {["openEnds", "longDurations", "hardConstraints", "missingLogic"].map((k) => (
+                <div key={k} className="border rounded-xl p-4">
+                  <h3 className="font-semibold mb-2">{title(k)}</h3>
+                  <ul className="list-disc pl-5 space-y-1 max-h-56 overflow-auto">
+                    {insightsQ.data.details[k].slice(0, 50).map((d: any, i: number) => (
+                      <li key={i} className={d.severity === "error" ? "text-red-600" : d.severity === "warn" ? "text-amber-600" : ""}>
+                        {d.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {importId && (
+        <Card className="rounded-2xl shadow-sm">
+          <CardContent className="p-6 grid gap-4">
+            <h3 className="font-semibold flex items-center gap-2"><MessageSquare className="h-5 w-5"/> Ask your schedule</h3>
+            <form
+              className="flex gap-2"
+              onSubmit={askForm.handleSubmit(async (vals) => {
+                await askMut.mutateAsync(vals.question);
+              })}
+            >
+              <Textarea placeholder="e.g., How many activities are unlinked?" {...askForm.register("question")} />
+              <Button type="submit" disabled={!importId || askMut.isPending}>
+                Ask
+              </Button>
+            </form>
+            {askMut.data && <div className="text-sm text-muted-foreground">{askMut.data.answer}</div>}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function title(k: string) {
+  switch (k) {
+    case "openEnds": return "Open Ends";
+    case "longDurations": return "Long Durations";
+    case "hardConstraints": return "Hard Constraints";
+    case "missingLogic": return "Unlinked Activities";
+    default: return k;
+  }
+}
+
+
+Commands
+
+# Server deps
+npm i multer date-fns
+# (If not already)
+npm i -D @types/multer
+
+# Apply DB changes
+npm run db:push
+
+# Run dev
+npm run dev
+npm run web
+
+
+Why this works
+
+Gives immediate “AI-like” value (quality score + actionable findings) without waiting for LLMs; insights are deterministic and fast.
+
+Keeps multi-tenancy safe: every insert/select is filtered by companyId from the server session, never from the client.
+
+Zod at the edge validates params/bodies; strict TypeScript across server and client.
+
+Stores parsed XER as jsonb to iterate quickly before committing to a fully normalized schema; we can later migrate hot paths.
+
+React Query keys are scoped to {projectId, importId} and refetch on focus for near-real-time freshness.
+
+Clean seam to add embeddings/LLM later (swap simpleQA with a provider; add vector index for TASK/WBS text).
+
+Next checks
+
+Import a real P6 XER and confirm TASK, TASKPRED, WBS tables are detected; adjust table names if your export differs.
+
+Verify RBAC: only users with access to the project can POST/GET these routes.
+
+Add server limits: max XER size (e.g., 25MB) and rate limit on uploads.
+
+Extend insights: out-of-sequence based on actual dates, calendar anomalies, float < 0, resource overload snapshots.
+
+(Optional) Normalize critical subsets (activities, relationships) into tables for faster queries and add indexes.

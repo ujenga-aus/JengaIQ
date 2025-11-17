@@ -1,0 +1,410 @@
+PST eDiscovery AI Search — Full Brief (MVP → V1)
+1. Objective
+
+Build a defensible email discovery system for PST archives that lets a claims consultant answer precise questions fast. It must find the right messages and attachments across wording differences, collapse duplicates and boilerplate, show thread context, and export with an audit trail.
+
+Success looks like:
+
+First relevant email in under 10 seconds from query to click.
+
+Precision@10 above 0.7 on curated eval sets.
+
+End to end audited exports with chain of custody.
+
+2. Core use cases
+
+Prove an approval. Example: “weekend work approved” even if the words are “Saturday access permitted”.
+
+Find EOT and LD positions. Example: “cap on delay damages” matches “LDs not to exceed 10 percent”.
+
+Reconstruct who knew what and when. Timeline by custodian, project, and topic.
+
+Pull every attachment that matters to a claim and link it to the parent email.
+
+3. Scope
+In scope (MVP)
+
+Parse PST files. Extract emails, headers, bodies, attachments.
+
+OCR scanned attachments. HTML to clean text conversion.
+
+De‑duplication and near‑duplicate detection.
+
+Thread reconstruction via Message‑ID, In‑Reply‑To, References.
+
+Hybrid retrieval: BM25 + vector search with reciprocal rank fusion.
+
+Cross‑encoder reranking of top candidates.
+
+Filters: date range, custodian, sender, recipient, domain, project, has attachments, attachment type.
+
+UI: search, facets, result list with highlights, thread view, attachment preview, saved searches.
+
+Audit: hashes, immutable logs, export bundles with metadata.
+
+V1 additions
+
+Boilerplate and quote collapsing. Signature and disclaimer down‑weighting.
+
+Active learning (TAR 2.0) from reviewer feedback.
+
+Query assistant that proposes synonyms and filters.
+
+Communication timeline and party graph view.
+
+Named entity extraction and project code detection.
+
+Export to PDF, EML, and load files with Bates‑style IDs.
+
+4. Architecture
+
+Frontend: React + TypeScript, Tailwind, shadcn/ui.
+Backend: Node.js + TypeScript (Express).
+Storage: Postgres for metadata and audit, S3‑compatible object storage for blobs and derivatives.
+Search: OpenSearch (BM25) for sparse, pgvector or Qdrant for vectors.
+Workers: BullMQ + Redis for ingestion, OCR, embedding, dedupe, and indexing.
+Services: Tika for attachment text, Tesseract for OCR, Embedding service, Reranker service.
+Observability: OpenTelemetry traces, logs, metrics.
+
+High level flow
+
+Ingest PST → extract items → normalise → dedupe → OCR attachments → store text and blobs → embed chunks → index to OpenSearch and vector store → write audit log.
+
+Query → build Boolean query + embedding → run BM25 and ANN → fuse → rerank top N with cross‑encoder → apply thread awareness and dedupe → present UI → record actions in audit.
+
+5. Data model (Postgres)
+Tables
+
+custodians: id, email, display_name, notes.
+
+messages: id (uuid), custodian_id, message_id, thread_id, subject, from_email, to_emails[], cc_emails[], bcc_emails[], sent_at_utc, received_at_utc, tz_hint, mime_version, content_type, size_bytes, has_attachments, parent_message_id, sha256_body, sha256_full, is_duplicate_of, quote_ratio, disclaimer_ratio, cleaned_text, raw_html, raw_text.
+
+attachments: id, message_id, file_name, mime_type, size_bytes, sha256, extracted_text, ocr_text, ocr_confidence, has_text, page_count.
+
+threads: id, root_message_id, subject_canonical, first_sent_at, last_sent_at, message_count.
+
+embeddings: id, owner_type ('message'|'attachment'|'chunk'), owner_id, chunk_index, model_name, dim, vec (vector), token_count.
+
+entities: id, owner_type, owner_id, type, value, start_char, end_char, confidence.
+
+projects: id, code, name, patterns[] (regex), notes.
+
+message_projects: id, message_id, project_id, confidence.
+
+audits: id, actor, action, target_type, target_id, timestamp_utc, data_json, hash_prev, hash_this.
+
+exports: id, recipe_json, created_at_utc, created_by, manifest_sha256, bundle_path.
+
+Indexing views
+
+search_docs materialized view that flattens message or attachment into a single row for BM25 with fields: doc_id, doc_type, message_id, attachment_id, subject, participants_text, cleaned_text, attachment_text, date, fields for facets, and a bm25_body text column.
+
+6. Ingestion pipeline
+
+PST parsing: pypff/libpff. Extract RFC822 headers, MIME structure, Message‑ID, References, In‑Reply‑To.
+
+Body normalisation: convert HTML to text, preserve basic structure, collapse excessive whitespace.
+
+Quote and boilerplate handling: detect quoted blocks (lines starting with ">", Outlook separators, “Original Message”), strip or down‑weight. Strip signatures and disclaimers using regex libraries and learned patterns.
+
+Deduplication: compute sha256 of a canonicalised body. For near‑dups use simhash or minhash on shingles. Store is_duplicate_of pointer.
+
+Threading: link via Message‑ID, In‑Reply‑To, References. If missing, use subject normalisation plus time proximity and participants as fallback.
+
+Attachment text: Apache Tika for office/PDF. OCR images and scanned PDFs with Tesseract. Keep both raw and extracted text. Track confidence.
+
+Time: normalise to UTC. Record any timezone hints. Default UI display to Australia/Brisbane.
+
+Projects: detect codes like QTMP, LTR‑001, etc via regex and a managed lookup table.
+
+Entities: lightweight NER for people, orgs, money amounts, dates. Used for facets and recall.
+
+Embeddings: chunk long texts at paragraph boundaries. Target 500 to 800 tokens per chunk. Store vectors in embeddings and a pointer back to owner.
+
+Indexing: send docs to OpenSearch with analyzers and to vector store.
+
+Audit: write an append‑only audit entry for each stage with chained hashes.
+
+7. Retrieval and ranking
+Query understanding
+
+Parse query into: required terms, optional synonyms, exclusions, and filters.
+
+Expand synonyms from a domain list. Example: EOT ↔ extension of time. LDs ↔ liquidated damages. VO ↔ variation order. Superintendent ↔ contract administrator. PC ↔ practical completion. DLP ↔ defects liability period.
+
+Hybrid search
+
+Run BM25 on bm25_body and subject with field boosts.
+
+Run ANN on embeddings over message and attachment chunks.
+
+Fuse with Reciprocal Rank Fusion. Example: RRF_k=60.
+
+Rerank the top 200 with a cross‑encoder that reads query and candidate together.
+
+Apply metadata boosts: project match, same participants, attachment has text, date proximity.
+
+Filters
+
+Date range, sender, recipient, domain, custodian, project, has attachments, attachment types, size range, language.
+
+Thread mode: show one decisive message per thread or expand full thread.
+
+Result shaping
+
+Collapse near‑dups, keep the highest quality copy.
+
+Highlight exact hits and semantic spans.
+
+Always show the decisive sentence and a few lines of context.
+
+Provide jump links to the parent message and attachments.
+
+8. UI flows
+Search
+
+One search box. Below it, suggested filters based on query parse.
+
+Left facet panel. Counts by date, custodian, sender domain, project, attachment type.
+
+Center results: title = subject. Badges for has attachment, project, custodian. Snippets with highlights. Thread count chip.
+
+Right panel: preview selected email or attachment, with thread tree and quoted content toggles.
+
+Review
+
+Mark relevant, not relevant, privileged, issue tags.
+
+Bulk actions on selected set.
+
+Active learning panel shows how prioritisation changes as you label.
+
+Timeline and graph
+
+Timeline of communications filtered by project and parties.
+
+Simple party graph to spot clusters and bridges.
+
+Saved searches
+
+Save as a named recipe. JSON shows the exact query, filters, versions, model IDs, and index snapshots.
+
+9. API contract (selected)
+Search
+
+POST /search
+
+{
+  "query": "approved weekend work",
+  "must": ["QTMP"],
+  "none": ["draft"],
+  "filters": {
+    "date_from": "2023-01-01",
+    "date_to": "2024-12-31",
+    "senders": ["superintendent@client.com"],
+    "has_attachments": true,
+    "attachment_types": ["pdf", "docx"],
+    "projects": ["QTMP"]
+  },
+  "ranking": {"bm25": 0.6, "vector": 0.4, "rrf_k": 60, "rerank_top_n": 200},
+  "page": 1,
+  "per_page": 25,
+  "thread_mode": "decisive"
+}
+Get message
+
+GET /messages/{id} returns headers, bodies, highlights, and attachment list.
+
+Export
+
+POST /exports with a saved recipe id or an inline search JSON. Returns a bundle with PDFs or EMLs, a CSV of metadata, and an audit manifest.
+
+Audit
+
+GET /audits?target_type=message&target_id=... for a tamper‑evident chain.
+
+10. Search configuration
+OpenSearch analyzers
+
+Standard English analyzer for subject and body.
+
+Custom synonym filter seeded with domain terms.
+
+N‑gram field for IDs and codes like LTR‑003, QTMP‑123.
+
+Vector store
+
+Cosine similarity for embeddings.
+
+HNSW index.
+
+Separate collections for messages and attachments.
+
+Store chunk offsets for precise highlights.
+
+Reranker
+
+Cross‑encoder with max sequence length 1024. Cache results for popular queries for 15 minutes.
+
+11. Evaluation
+
+Build a small gold set of 100 to 300 judged items per issue type: approvals, EOT, LD caps, variation instructions.
+
+Metrics: Precision@10, Recall@100, NDCG@20, Time to first relevant, Click‑through on top 5.
+
+Weekly regression tests on the gold set. Fail the build if metrics drop beyond a set threshold.
+
+12. Security and compliance
+
+Encrypt at rest and in transit.
+
+Role based access with least privilege.
+
+Redaction tools for PII before export.
+
+Chain of custody: SHA‑256 hashes for each file and canonical text.
+
+Immutable audit table with hash chaining.
+
+Configurable retention and deletion policies.
+
+13. Export bundles
+
+Structure: /bundle/{BATES_PREFIX}/messages/*.pdf|.eml, /attachments/*, /meta/manifest.csv, /audit/log.jsonl, /hashes/sha256.txt.
+
+Bates pattern: {PREFIX}-{counter} applied to each produced file and recorded in manifest.
+
+Option to export load files for common review tools.
+
+14. Implementation plan
+
+Sprint 1: PST ingestion, Postgres schema, basic UI skeleton.
+Sprint 2: Text extraction, OCR, attachment handling, storage.
+Sprint 3: BM25 index, vector index, hybrid search, results UI with filters.
+Sprint 4: Reranking, threading, dedupe, highlights, preview.
+Sprint 5: Audit logging, exports, saved searches.
+Sprint 6: Boilerplate collapsing, synonym manager, evaluation harness, timelines.
+
+Exit criteria per sprint: working demos, tests, and a small gold set showing improved metrics.
+
+15. Risks and mitigations
+
+Poor OCR on low‑quality scans. Mitigate with image pre‑processing and a “needs review” flag.
+
+Over‑matching from quoted content. Mitigate by down‑weighting and quote collapsing.
+
+Trust in summaries. Always pair summaries with quoted spans and source links.
+
+Legal defensibility. Keep chain of custody, version all models and indexes, and store search recipes.
+
+16. Domain synonym seed list
+
+EOT, extension of time, time relief, completion extension
+
+LDs, liquidated damages, delay damages, agreed damages, cap on damages
+
+VO, variation, change order, instruction to vary
+
+Superintendent, contract administrator, CA
+
+PC, practical completion, completion milestone
+
+DLP, defects liability period, maintenance period
+
+RFI, request for information
+
+Notice, notification, written notice
+
+Weekend work, Saturday access, overtime, out of hours
+
+17. Edge cases to handle
+
+Missing Message‑IDs. Use subject normalisation and proximity.
+
+Forwarded chains that rewrite subjects. Keep fallback heuristics but mark thread confidence.
+
+Nested ZIPs and MSG-in‑MSG attachments. Recursively extract with limits.
+
+Time zone drift across custodians. Always store UTC and show local on demand.
+
+Mixed languages. Detect and index with appropriate analyzers.
+
+18. DevOps
+
+Docker for all services.
+
+One‑click bootstrap script to start Postgres, Redis, OpenSearch, vector store, Tika, OCR, API, and UI.
+
+Nightly backups of Postgres and object storage.
+
+Dashboards: ingestion throughput, OCR coverage, dedupe rate, search latency p95, rerank time, precision on gold set.
+
+19. Minimal DDL sketch
+create table custodians (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  display_name text
+);
+
+
+create table messages (
+  id uuid primary key default gen_random_uuid(),
+  custodian_id uuid references custodians(id),
+  message_id text,
+  thread_id uuid,
+  subject text,
+  from_email text,
+  to_emails text[],
+  cc_emails text[],
+  bcc_emails text[],
+  sent_at_utc timestamptz,
+  received_at_utc timestamptz,
+  content_type text,
+  size_bytes int,
+  has_attachments boolean,
+  parent_message_id uuid,
+  sha256_body text,
+  sha256_full text,
+  is_duplicate_of uuid,
+  quote_ratio real,
+  disclaimer_ratio real,
+  cleaned_text text,
+  raw_html text,
+  raw_text text
+);
+
+
+create table attachments (
+  id uuid primary key default gen_random_uuid(),
+  message_id uuid references messages(id),
+  file_name text,
+  mime_type text,
+  size_bytes int,
+  sha256 text,
+  extracted_text text,
+  ocr_text text,
+  ocr_confidence real,
+  has_text boolean
+);
+
+
+create extension if not exists vector;
+create table embeddings (
+  id uuid primary key default gen_random_uuid(),
+  owner_type text check (owner_type in ('message','attachment','chunk')),
+  owner_id uuid,
+  chunk_index int,
+  model_name text,
+  dim int,
+  vec vector(1024),
+  token_count int
+);
+20. Test scenarios
+
+Query: “approval for Saturday work” with filters project=QTMP, date 2023‑01‑01 to 2024‑12‑31. Expect approvals in superintendent emails and attached permits.
+
+Query: “LD cap 10 percent” with synonyms active. Expect clauses and legal advice attachments.
+
+Query: “overtime on Sat/Sun ok” finds paraphrases across threads.
+
+Export the review set with correct Bates numbers and complete audit log.

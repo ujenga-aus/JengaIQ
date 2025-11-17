@@ -1,0 +1,162 @@
+What we’re changing
+Fix the parser so it ignores inline references like “clause 25.2(b)” and “paragraph (a)”, only treating a marker as a new list item when it appears at a valid boundary (start, after “;” or “:”, or a line break). This stops silly mistakes like injecting a lone “(b)” or restarting with “(a)” mid-sentence.
+
+Patch
+
+// web/src/components/PdfHoverHints.tsx
+// Replace the renderNestedListHTML() with this context-aware version.
+// (Everything else in the file stays the same.)
+function renderNestedListHTML(raw: string) {
+// --- helpers ---
+const esc = (s: string) => s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+const depthOf = (m: string) =>
+/^
+[
+𝑎
+−
+𝑧
+]
+[a−z]$/i.test(m) ? 0 : /^
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+$/i.test(m) ? 1 : /^
+\d
++
+\d+$/.test(m) ? 2 : -1;
+
+// Output buffers and open-state
+const out: string[] = [];
+const openLI: Record<number, boolean> = {};
+let deepest = -1;
+const push = (s: string) => out.push(s);
+const openListTo = (to: number) => { for (let d = deepest + 1; d <= to; d++) { push(<ol class="tlist" data-depth="${d}">); openLI[d] = false; deepest = d; } };
+const closeLIAt = (d: number) => { if (openLI[d]) { push(</li>); openLI[d] = false; } };
+const closeDownTo = (target: number) => { for (let d = deepest; d > target; d--) { closeLIAt(d); push(</ol>); delete openLI[d]; } deepest = target; };
+const startItem = (depth: number, marker: string, body: string) => {
+if (deepest < 0) openListTo(depth);
+else if (depth > deepest) openListTo(depth);
+else if (depth < deepest) { closeDownTo(depth); closeLIAt(depth); }
+else closeLIAt(depth);
+push(<li><span class="m">${esc(marker)}</span><div class="li-body">${esc(body)}</div>);
+openLI[depth] = true;
+};
+const finish = () => closeDownTo(-1);
+
+// --- 1) Optional "Term: ..." head, keep as bold and keep parsing the rest ---
+let head = "";
+let body = raw;
+const termMatch = body.match(/^\s*([^:]+?):\s*(.*)$/s);
+if (termMatch) {
+const [, term, rest] = termMatch;
+head = <strong>${esc(term)}:</strong>;
+body = rest;
+}
+
+// --- 2) Scan for VALID item markers with context rules ---
+// A marker counts as the start of a list item only if:
+// • It is at start OR preceded by ; or : or a line break
+// • It is NOT immediately preceded by words like "clause", "paragraph", "item", "schedule"
+// • It is NOT part of a numeric ref like "25.2(b)"
+const re = /
+(
+[
+𝑎
+−
+𝑧
+]
+∣
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+∣
+\d
++
+)
+([a−z]∣[ivxlcdm]+∣\d+)/gi;
+type Hit = { idx: number; end: number; marker: string; depth: number };
+const hits: Hit[] = [];
+for (let m; (m = re.exec(body)); ) {
+const marker = m[0]; // "(a)"
+const idx = m.index;
+const before = body.slice(0, idx);
+const afterChar = body[m.index + marker.length] || " ";
+const prev = before.trimEnd();
+const prevTail = prev.slice(-30); // lookback window
+
+const validBoundary =
+  idx === 0 ||
+  /[;:]\s*$/.test(before) ||
+  /\r?\n\s*$/.test(before);
+
+const notReferenceWord = !/(clause|paragraph|item|schedule)\s*$/i.test(prevTail);
+
+const notNumericRef = !/\d\)\s*$/.test(prevTail) && !/\d(?:\.\d+)*\s*$/.test(prevTail);
+
+const followedBySpaceOrLetter = /\s/.test(afterChar);
+
+if (validBoundary && notReferenceWord && notNumericRef && followedBySpaceOrLetter) {
+  const d = depthOf(marker);
+  if (d >= 0) hits.push({ idx, end: idx + marker.length, marker, depth: d });
+}
+
+
+}
+
+// If no valid markers → just a paragraph
+if (!hits.length) {
+return <p class="tpara">${[head, esc(body.trim())].filter(Boolean).join(" ")}</p>;
+}
+
+// --- 3) Emit prelude (before first marker) as a paragraph ---
+const prelude = body.slice(0, hits[0].idx).trim();
+if (head || prelude) push(<p class="tpara">${[head, esc(prelude)].filter(Boolean).join(" ")}</p>);
+
+// --- 4) Emit items; each body runs until next VALID marker ---
+for (let i = 0; i < hits.length; i++) {
+const h = hits[i];
+const nextStart = i + 1 < hits.length ? hits[i + 1].idx : body.length;
+let itemText = body.slice(h.end, nextStart).trim();
+
+// Trim connectors at the END of the item: ";", "; and", "; or"
+itemText = itemText.replace(/\s*;(?:\s*(?:and|or))?\s*$/i, "");
+// Also drop connector that accidentally starts the item (e.g., "; or (b) ...")
+itemText = itemText.replace(/^(?:and|or)\s+/i, "");
+
+startItem(h.depth, h.marker, itemText);
+
+
+}
+finish();
+return out.join("");
+}
+
+Commands
+
+npm run web
+
+Why this works
+
+Context-aware markers: (b) after “clause 25.2” or “paragraph (a)” is ignored, but (b) after “;” or “:” becomes a real item.
+
+No auto-numbering: we render the actual marker text we found, so letters/romans don’t get renumbered.
+
+Nested correctly: deeper markers open a child <ol> inside the current <li>; moving back closes to the right level.
+
+Connectors handled: ; and / ; or are trimmed at the end of items, and leading “and/or” in front of a marker is removed.
+
+Prelude retained: “means,” “for a period:” stay as a paragraph before the list—matching the contract layout.

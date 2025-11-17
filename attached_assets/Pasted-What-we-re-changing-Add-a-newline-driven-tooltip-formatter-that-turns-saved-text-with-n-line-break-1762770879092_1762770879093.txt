@@ -1,0 +1,163 @@
+What we’re changing
+Add a newline-driven tooltip formatter that turns saved text (with \n line breaks) into a clean, nested list with hanging indents. We render the actual markers "(a)/(i)/(1)" and keep any non-marker lines as paragraphs. Drop-in CSS makes it look Word-like in a small tooltip.
+
+Patch
+
+// web/src/lib/formatContractTooltip.ts
+// Newline-driven formatter → HTML string (safe to inject).
+export function formatContractTooltip(raw: string): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lines = raw.replace(/\r\n/g, "\n").split("\n").map(l => l.trim()).filter(Boolean);
+
+  const depthOf = (marker: string): 0 | 1 | 2 | -1 =>
+    /^\([a-z]\)$/i.test(marker) ? 0 :
+    /^\([ivxlcdm]+\)$/i.test(marker) ? 1 :
+    /^\(\d+\)$/.test(marker) ? 2 : -1;
+
+  type Frame = { depth: number; openLi: boolean };
+  const out: string[] = [];
+  const stack: Frame[] = [];
+
+  const openList = (depth: number) => {
+    out.push(`<ol class="tlist" data-depth="${depth}">`);
+    stack.push({ depth, openLi: false });
+  };
+  const closeLi = () => {
+    const top = stack[stack.length - 1];
+    if (top?.openLi) {
+      out.push(`</li>`);
+      top.openLi = false;
+    }
+  };
+  const closeToDepth = (target: number) => {
+    while (stack.length && stack[stack.length - 1].depth > target) {
+      closeLi();
+      out.push(`</ol>`);
+      stack.pop();
+    }
+  };
+  const startItem = (depth: number, marker: string, text: string) => {
+    if (!stack.length || stack[stack.length - 1].depth < depth) {
+      for (let d = stack.length ? stack[stack.length - 1].depth + 1 : 0; d <= depth; d++) openList(d);
+    } else if (stack[stack.length - 1].depth > depth) {
+      closeToDepth(depth);
+      closeLi();
+    } else {
+      // same level
+      closeLi();
+    }
+    out.push(
+      `<li><span class="m">${esc(marker)}</span><div class="li-body">${esc(text)}</div>`
+    );
+    stack[stack.length - 1].openLi = true;
+  };
+  const para = (text: string) => {
+    // paragraph either inside current <li> or standalone
+    out.push(`<p class="tpara">${esc(text)}</p>`);
+  };
+
+  // Optional first line "Term: …" header
+  if (lines.length) {
+    const first = lines[0];
+    const isMarkerFirst = /^\(\s*[a-zivxlcdm\d]+\s*\)/i.test(first);
+    if (!isMarkerFirst && /^[^()]+:/.test(first)) {
+      para(`<strong>${esc(first)}</strong>`);
+      lines.shift();
+    }
+  }
+
+  // Parse each line
+  const END_JOIN_RE = /\s*[;,]?\s*(?:and\/or|and|or)\s*$/i; // trim at end of item
+  for (const line of lines) {
+    const m = line.match(/^\s*(\([a-z]\)|\([ivxlcdm]+\)|\(\d+\))\s+(.*)$/i);
+    if (m) {
+      const marker = m[1];
+      const d = depthOf(marker);
+      if (d >= 0) {
+        const body = (m[2] || "").replace(END_JOIN_RE, "").trim();
+        startItem(d, marker, body);
+        continue;
+      }
+    }
+    // not a marker line → paragraph
+    para(line);
+  }
+
+  // close any open structures
+  closeToDepth(-1);
+  return out.join("");
+}
+
+// web/src/components/PdfHoverHints.tsx
+// Use the new formatter when building tooltip HTML for definitions.
+import { formatContractTooltip } from "../lib/formatContractTooltip";
+
+// … keep the rest of your PdfHoverHints as you have it …
+/* inside the hover logic where we show a definition tooltip */
+if (t.hasAttribute(ATTR.defToken)) {
+  const token = t.getAttribute(ATTR.defToken)!;
+  const d = defMap.get(token);
+  if (d) {
+    const html = formatContractTooltip(`${d.term}: ${d.definition}`);
+    show(html);
+  }
+  return;
+}
+
+/* web/src/styles/contract-tooltips.css */
+/* (Add or keep these styles once in your app) */
+.contract-tooltip {
+  max-width: 560px;
+  background: white;
+  border: 1px solid rgb(229 231 235);
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  border-radius: 12px;
+  padding: 12px 14px;
+  z-index: 50;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+.contract-tooltip .tpara { margin: .45rem 0; }
+.contract-tooltip .tpara:first-child { margin-top: 0; }
+.contract-tooltip .tpara:last-child { margin-bottom: 0; }
+
+/* Nested list with true hanging indent via grid */
+.contract-tooltip ol.tlist { list-style: none; padding-left: 0; margin: .3rem 0; }
+.contract-tooltip ol.tlist > li {
+  display: grid;
+  grid-template-columns: auto 1fr; /* marker | content */
+  column-gap: .6ch;
+  align-items: start;
+  margin: .3rem 0;
+}
+.contract-tooltip ol.tlist > li .m { width: 3ch; text-align: right; }
+.contract-tooltip ol.tlist[data-depth="1"] { margin-left: 1.25rem; }
+.contract-tooltip ol.tlist[data-depth="1"] > li .m { width: 3.6ch; } /* roman wider */
+.contract-tooltip ol.tlist[data-depth="2"] { margin-left: 1.75rem; }
+.contract-tooltip ol.tlist[data-depth="2"] > li .m { width: 3.2ch; }
+
+/* paragraphs inside items keep rhythm */
+.contract-tooltip ol.tlist > li .li-body .tpara { margin: .35rem 0 0 0; }
+
+
+Commands
+
+# Frontend-only
+npm run web
+
+
+Why this works
+
+Newline-driven: we only start a list item when a line begins with "(a)" / "(i)" / "(1)", so references like clause 25.2(b) never create bullets.
+
+Exact markers: we render the literal marker text—no auto-counters—so mid-series letters/romans stay correct.
+
+Proper nesting: increasing depth opens a child list inside the current <li>; decreasing depth closes back up, matching Word layout.
+
+Hanging indents: CSS grid gives a dedicated marker column so wrapped lines align neatly under the text.
+
+Safe: returns an escaped HTML string; no script injection.

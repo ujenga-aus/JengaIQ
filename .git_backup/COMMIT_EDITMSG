@@ -1,0 +1,9 @@
+Streamline user data retrieval across API endpoints
+
+Refactor API routes to utilize a pre-fetched `req.person` object, removing redundant database lookups for user information.
+
+Replit-Commit-Author: Agent
+Replit-Commit-Session-Id: 7d876a8a-25fe-4f17-b1ff-3e667670d290
+Replit-Commit-Checkpoint-Type: full_checkpoint
+Replit-Commit-Event-Id: f5f2773f-79d2-4e1c-b260-c9fc6d9dcc21
+Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/0b9b5e2f-f385-41ec-9203-48b6fce6defe/7d876a8a-25fe-4f17-b1ff-3e667670d290/089pFS4

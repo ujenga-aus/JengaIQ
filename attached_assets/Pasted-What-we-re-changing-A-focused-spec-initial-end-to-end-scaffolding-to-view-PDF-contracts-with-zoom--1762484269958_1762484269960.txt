@@ -1,0 +1,464 @@
+What we’re changing
+A focused spec + initial end-to-end scaffolding to view PDF contracts with zoom, sticky notes (multi-user, username-stamped), per-point AI chat threads, and auto-extracted AI metadata (clause headings + definitions by GC/Schedule ref) that powers blush-purple tooltips on hover for clause numbers and defined terms.
+
+Patch
+
+// server/db/schema.ts
++import { pgTable, serial, text, integer, timestamp, uuid, jsonb, varchar, boolean } from "drizzle-orm/pg-core";
++import { relations } from "drizzle-orm";
++
++export const contracts = pgTable("contracts", {
++  id: serial("id").primaryKey(),
++  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
++  buId: integer("bu_id").references(() => businessUnits.id, { onDelete: "set null" }),
++  projectId: integer("project_id").references(() => projects.id, { onDelete: "set null" }),
++  title: text("title").notNull(),
++  fileKey: text("file_key").notNull(), // object storage key
++  pageCount: integer("page_count").notNull().default(0),
++  hasAiMetadata: boolean("has_ai_metadata").notNull().default(false),
++  createdAt: timestamp("created_at").defaultNow().notNull(),
++});
++
++export const contractClauses = pgTable("contract_clauses", {
++  id: serial("id").primaryKey(),
++  contractId: integer("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
++  ref: varchar("ref", { length: 64 }).notNull(), // e.g., "GC 1.2", "Sch 3 cl 4"
++  number: varchar("number", { length: 64 }).notNull(), // clause number token as appears in text
++  heading: text("heading").notNull(),
++  pageIndex: integer("page_index").notNull(), // 0-based
++  bbox: jsonb("bbox").$type<{ x: number; y: number; w: number; h: number } | null>(), // optional anchor for tooltip
++  createdAt: timestamp("created_at").defaultNow().notNull(),
++});
++
++export const contractDefinitions = pgTable("contract_definitions", {
++  id: serial("id").primaryKey(),
++  contractId: integer("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
++  term: varchar("term", { length: 256 }).notNull(), // canonical capitalised term
++  definition: text("definition").notNull(),
++  scopeRef: varchar("scope_ref", { length: 64 }).notNull(), // "GC", "Schedule 2", etc.
++  pageIndex: integer("page_index").notNull(),
++  createdAt: timestamp("created_at").defaultNow().notNull(),
++});
++
++export const contractNotes = pgTable("contract_notes", {
++  id: serial("id").primaryKey(),
++  contractId: integer("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
++  companyId: integer("company_id").notNull(),
++  authorId: integer("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
++  authorName: varchar("author_name", { length: 128 }).notNull(),
++  pageIndex: integer("page_index").notNull(),
++  x: integer("x").notNull(), // % * 1000 (avoid floats)
++  y: integer("y").notNull(), // % * 1000
++  content: text("content").notNull(),
++  createdAt: timestamp("created_at").defaultNow().notNull(),
++  updatedAt: timestamp("updated_at").defaultNow().notNull(),
++});
++
++export const aiThreads = pgTable("ai_threads", {
++  id: uuid("id").defaultRandom().primaryKey(),
++  contractId: integer("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
++  companyId: integer("company_id").notNull(),
++  anchor: jsonb("anchor").$type<{ pageIndex: number; selection?: string; clauseRef?: string }>().notNull(),
++  title: varchar("title", { length: 256 }).notNull(),
++  createdBy: integer("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
++  createdAt: timestamp("created_at").defaultNow().notNull(),
++});
++
++export const aiMessages = pgTable("ai_messages", {
++  id: serial("id").primaryKey(),
++  threadId: uuid("thread_id").notNull().references(() => aiThreads.id, { onDelete: "cascade" }),
++  role: varchar("role", { length: 16 }).notNull(), // 'user' | 'assistant' | 'system'
++  content: text("content").notNull(),
++  createdAt: timestamp("created_at").defaultNow().notNull(),
++});
++
++export const contractSearchIndex = pgTable("contract_search_index", {
++  id: serial("id").primaryKey(),
++  contractId: integer("contract_id").notNull().references(() => contracts.id, { onDelete: "cascade" }),
++  pageIndex: integer("page_index").notNull(),
++  tokens: text("tokens").notNull(), // naive full-text; can upgrade to tsvector later
++});
++
++export type Clause = typeof contractClauses.$inferSelect;
++export type Definition = typeof contractDefinitions.$inferSelect;
+
+// server/routes/contracts.ts
++import { Router } from "express";
++import { z } from "zod";
++import { requireAuth, withCompany } from "../middleware/authz";
++import { db } from "../db";
++import { contracts, contractNotes, contractClauses, contractDefinitions, aiThreads, aiMessages } from "../db/schema";
++import { and, eq } from "drizzle-orm";
++import { triggerExtractIfMissing } from "../services/ai/extractContract";
++
++export const contractsRouter = Router();
++
++// Get a contract + AI metadata
++contractsRouter.get("/:id",
++  requireAuth,
++  withCompany,
++  async (req, res, next) => {
++    try {
++      const id = z.coerce.number().parse(req.params.id);
++      const companyId = req.company!.id;
++      const [c] = await db.select().from(contracts).where(and(eq(contracts.id, id), eq(contracts.companyId, companyId)));
++      if (!c) return res.status(404).json({ error: "Not found" });
++      if (!c.hasAiMetadata) {
++        // fire-and-forget (no async promises left hanging)
++        triggerExtractIfMissing(c).catch(err => console.error("extractContract failed", err));
++      }
++      const [clauses, defs] = await Promise.all([
++        db.select().from(contractClauses).where(eq(contractClauses.contractId, id)),
++        db.select().from(contractDefinitions).where(eq(contractDefinitions.contractId, id)),
++      ]);
++      res.json({ contract: c, clauses, definitions: defs });
++    } catch (e) { next(e); }
++  }
++);
++
++// Sticky notes CRUD (username stamped)
++const noteBody = z.object({
++  pageIndex: z.number().int().min(0),
++  x: z.number().int().min(0).max(1000),
++  y: z.number().int().min(0).max(1000),
++  content: z.string().min(1).max(5000),
++});
++
++contractsRouter.get("/:id/notes", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const id = z.coerce.number().parse(req.params.id);
++    const companyId = req.company!.id;
++    const rows = await db.select().from(contractNotes).where(and(eq(contractNotes.contractId, id), eq(contractNotes.companyId, companyId)));
++    res.json(rows);
++  } catch (e) { next(e); }
++});
++
++contractsRouter.post("/:id/notes", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const id = z.coerce.number().parse(req.params.id);
++    const companyId = req.company!.id;
++    const user = req.user!;
++    const body = noteBody.parse(req.body);
++    const [row] = await db.insert(contractNotes).values({
++      contractId: id,
++      companyId,
++      authorId: user.id,
++      authorName: user.name,
++      ...body,
++    }).returning();
++    res.status(201).json(row);
++  } catch (e) { next(e); }
++});
++
++contractsRouter.patch("/notes/:noteId", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const noteId = z.coerce.number().parse(req.params.noteId);
++    const body = z.object({ content: z.string().min(1).max(5000) }).parse(req.body);
++    const [row] = await db.update(contractNotes).set({ content: body.content, updatedAt: new Date() }).where(eq(contractNotes.id, noteId)).returning();
++    res.json(row);
++  } catch (e) { next(e); }
++});
++
++contractsRouter.delete("/notes/:noteId", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const noteId = z.coerce.number().parse(req.params.noteId);
++    await db.delete(contractNotes).where(eq(contractNotes.id, noteId));
++    res.status(204).end();
++  } catch (e) { next(e); }
++});
++
++// AI chat threads anchored to point/clause
++const threadCreate = z.object({
++  anchor: z.object({ pageIndex: z.number().int(), selection: z.string().optional(), clauseRef: z.string().optional() }),
++  firstMessage: z.string().min(1),
++  title: z.string().min(1).max(256),
++});
++
++contractsRouter.post("/:id/ai/threads", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const id = z.coerce.number().parse(req.params.id);
++    const companyId = req.company!.id;
++    const user = req.user!;
++    const body = threadCreate.parse(req.body);
++    const [thread] = await db.insert(aiThreads).values({
++      contractId: id,
++      companyId,
++      anchor: body.anchor,
++      title: body.title,
++      createdBy: user.id,
++    }).returning();
++    await db.insert(aiMessages).values({ threadId: thread.id, role: "user", content: body.firstMessage });
++    // Optionally call AI and store assistant message
++    res.status(201).json(thread);
++  } catch (e) { next(e); }
++});
++
++contractsRouter.get("/:id/ai/threads", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const id = z.coerce.number().parse(req.params.id);
++    const threads = await db.select().from(aiThreads).where(eq(aiThreads.contractId, id));
++    res.json(threads);
++  } catch (e) { next(e); }
++});
++
++contractsRouter.get("/ai/threads/:threadId/messages", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const threadId = z.string().uuid().parse(req.params.threadId);
++    const rows = await db.select().from(aiMessages).where(eq(aiMessages.threadId, threadId));
++    res.json(rows);
++  } catch (e) { next(e); }
++});
++
++contractsRouter.post("/ai/threads/:threadId/messages", requireAuth, withCompany, async (req, res, next) => {
++  try {
++    const threadId = z.string().uuid().parse(req.params.threadId);
++    const body = z.object({ content: z.string().min(1) }).parse(req.body);
++    const [msg] = await db.insert(aiMessages).values({ threadId, role: "user", content: body.content }).returning();
++    // TODO: call AI provider and persist assistant reply
++    res.status(201).json(msg);
++  } catch (e) { next(e); }
++});
++
++export default contractsRouter;
+
+// server/services/ai/extractContract.ts
++import { contracts, contractClauses, contractDefinitions, contractSearchIndex } from "../../db/schema";
++import { db } from "../../db";
++import { and, eq } from "drizzle-orm";
++import { z } from "zod";
++import { getObjectStream } from "../../storage/objects";
++// NOTE: keep provider-agnostic; plug in LLM later.
++
++export async function triggerExtractIfMissing(c: typeof contracts.$inferSelect) {
++  if (c.hasAiMetadata) return;
++  // Basic guard to ensure single-run per contract; in real impl use advisory lock.
++  await extractContractMetadata(c.id, c.fileKey);
++}
++
++export async function extractContractMetadata(contractId: number, fileKey: string) {
++  // 1) Load PDF bytes from object storage.
++  const stream = await getObjectStream(fileKey);
++  // 2) TODO: Run pdf.js text extraction per page -> raw text blocks.
++  // 3) Heuristics + LLM (optional): find "Definitions" sections, schedules, clause headings.
++  //    - Identify tokens Like: "1. DEFINITIONS", "GC 1.2", "Schedule 3 – Pricing"
++  // 4) Persist into contractClauses / contractDefinitions / contractSearchIndex.
++  // 5) Mark contract.hasAiMetadata = true.
++  await db.update(contracts).set({ hasAiMetadata: true }).where(eq(contracts.id, contractId));
++}
+
+// server/index.ts (wire router)
++import contractsRouter from "./routes/contracts";
++app.use("/contracts", contractsRouter);
+
+// web/src/api/contracts.ts
++import { api } from "./client";
++
++export type Clause = { id: number; ref: string; number: string; heading: string; pageIndex: number };
++export type Definition = { id: number; term: string; definition: string; scopeRef: string; pageIndex: number };
++
++export async function getContract(id: number) {
++  return api.get(`/contracts/${id}`).then(r => r.data as { contract: any; clauses: Clause[]; definitions: Definition[] });
++}
++export async function listNotes(id: number) {
++  return api.get(`/contracts/${id}/notes`).then(r => r.data as Note[]);
++}
++export async function createNote(id: number, payload: { pageIndex: number; x: number; y: number; content: string }) {
++  return api.post(`/contracts/${id}/notes`, payload).then(r => r.data as Note);
++}
++export async function updateNote(noteId: number, content: string) {
++  return api.patch(`/contracts/notes/${noteId}`, { content }).then(r => r.data as Note);
++}
++export type Note = { id: number; pageIndex: number; x: number; y: number; content: string; authorName: string };
++export async function createThread(contractId: number, body: { anchor: { pageIndex: number; selection?: string; clauseRef?: string }, firstMessage: string, title: string }) {
++  return api.post(`/contracts/${contractId}/ai/threads`, body).then(r => r.data);
++}
++export async function listThreads(contractId: number) {
++  return api.get(`/contracts/${contractId}/ai/threads`).then(r => r.data as any[]);
++}
++export async function listThreadMessages(threadId: string) {
++  return api.get(`/contracts/ai/threads/${threadId}/messages`).then(r => r.data as any[]);
++}
++export async function addThreadMessage(threadId: string, content: string) {
++  return api.post(`/contracts/ai/threads/${threadId}/messages`, { content }).then(r => r.data);
++}
+
+// web/src/routes/contracts/Viewer.tsx
++import { useEffect, useMemo, useRef, useState } from "react";
++import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
++import { getContract, listNotes, createNote, updateNote, listThreads, createThread } from "../../api/contracts";
++import { Button, Input, Textarea } from "@/components/ui";
++import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
++import { ZoomIn, ZoomOut, MessageSquarePlus, StickyNote } from "lucide-react";
++import { Document, Page, pdfjs } from "react-pdf";
++pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
++
++type Props = { contractId: number };
++const BLUSH_PURPLE = "bg-[#E6D7FF] text-[#3A2D5B] border-[#C7B1F3]";
++
++export default function ContractViewer({ contractId }: Props) {
++  const qc = useQueryClient();
++  const [scale, setScale] = useState(1.2);
++  const [numPages, setNumPages] = useState<number>(0);
++  const [page, setPage] = useState(1);
++  const { data } = useQuery({ queryKey: ["contract", contractId], queryFn: () => getContract(contractId) });
++  const notesQ = useQuery({ queryKey: ["notes", contractId], queryFn: () => listNotes(contractId), enabled: !!data });
++  const threadsQ = useQuery({ queryKey: ["threads", contractId], queryFn: () => listThreads(contractId), enabled: !!data });
++
++  const { mutate: addNote } = useMutation({
++    mutationFn: (payload: { pageIndex: number; x: number; y: number; content: string }) => createNote(contractId, payload),
++    onSuccess: () => qc.invalidateQueries({ queryKey: ["notes", contractId] }),
++  });
++  const { mutate: addThread } = useMutation({
++    mutationFn: (body: { anchor: { pageIndex: number; selection?: string; clauseRef?: string }, firstMessage: string, title: string }) =>
++      createThread(contractId, body),
++    onSuccess: () => qc.invalidateQueries({ queryKey: ["threads", contractId] }),
++  });
++
++  const pageClauses = useMemo(() => (data?.clauses ?? []).filter(c => c.pageIndex + 1 === page), [data, page]);
++  const pageDefs = useMemo(() => (data?.definitions ?? []).filter(d => d.pageIndex + 1 === page), [data, page]);
++
++  const onPageClick = (e: React.MouseEvent) => {
++    const container = e.currentTarget as HTMLElement;
++    const rect = container.getBoundingClientRect();
++    const xPct = Math.round(((e.clientX - rect.left) / rect.width) * 1000);
++    const yPct = Math.round(((e.clientY - rect.top) / rect.height) * 1000);
++    const content = window.prompt("New note:");
++    if (content) addNote({ pageIndex: page - 1, x: xPct, y: yPct, content });
++  };
++
++  return (
++    <div className="grid grid-cols-12 gap-4 h-full">
++      <div className="col-span-9 flex flex-col">
++        <div className="flex items-center gap-2 mb-2">
++          <Button variant="outline" onClick={() => setScale(s => Math.max(0.5, s - 0.1))}><ZoomOut className="w-4 h-4" /></Button>
++          <Button variant="outline" onClick={() => setScale(s => Math.min(3, s + 0.1))}><ZoomIn className="w-4 h-4" /></Button>
++          <div className="text-sm opacity-70">Page {page} / {numPages}</div>
++        </div>
++        <div className="relative border rounded-2xl overflow-hidden" onDoubleClick={onPageClick}>
++          <Document file={`/objects/${data?.contract.fileKey}`} onLoadSuccess={({ numPages }) => setNumPages(numPages)}>
++            <Page pageNumber={page} scale={scale} className="pdf-page" />
++          </Document>
++          {/* Sticky notes */}
++          {notesQ.data?.filter(n => n.pageIndex + 1 === page).map(n => (
++            <div key={n.id}
++                 className={`absolute rounded-xl shadow p-2 border ${BLUSH_PURPLE}`}
++                 style={{ left: `${n.x / 10}%`, top: `${n.y / 10}%`, transform: "translate(-50%,-50%)" }}>
++              <div className="text-xs font-semibold mb-1"><StickyNote className="inline w-3 h-3 mr-1" />{n.authorName}</div>
++              <div className="text-sm whitespace-pre-wrap">{n.content}</div>
++            </div>
++          ))}
++          {/* Clause + Definition hover layers (simple: badges at known anchors; advanced: textLayer mapping to spans) */}
++          <TooltipProvider delayDuration={100}>
++            {pageClauses.map(c => c.bbox ? (
++              <Tooltip key={`c-${c.id}`}>
++                <TooltipTrigger asChild>
++                  <button
++                    className="absolute text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300"
++                    style={{ left: `${(c.bbox!.x)}%`, top: `${(c.bbox!.y)}%` }}>
++                    {c.number}
++                  </button>
++                </TooltipTrigger>
++                <TooltipContent className={`${BLUSH_PURPLE} max-w-xs`}>
++                  <div className="text-xs font-semibold">{c.ref}</div>
++                  <div className="text-sm">{c.heading}</div>
++                </TooltipContent>
++              </Tooltip>
++            ) : null)}
++            {pageDefs.map(d => (
++              <Tooltip key={`d-${d.id}`}>
++                <TooltipTrigger asChild>
++                  <button className="hidden" />
++                </TooltipTrigger>
++                <TooltipContent className={`${BLUSH_PURPLE} max-w-sm`}>
++                  <div className="text-xs font-semibold">{d.term} ({d.scopeRef})</div>
++                  <div className="text-sm">{d.definition}</div>
++                </TooltipContent>
++              </Tooltip>
++            ))}
++          </TooltipProvider>
++        </div>
++        <div className="flex justify-between items-center mt-2">
++          <Button variant="outline" onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
++          <Button variant="outline" onClick={() => setPage(p => Math.min(numPages, p + 1))}>Next</Button>
++        </div>
++      </div>
++      {/* Right panel: AI per-point threads */}
++      <div className="col-span-3 border rounded-2xl p-3 flex flex-col">
++        <div className="font-semibold mb-2">AI Threads</div>
++        <div className="space-y-2 overflow-auto">
++          {threadsQ.data?.map(t => (
++            <div key={t.id} className="border rounded-xl p-2">
++              <div className="text-sm font-medium">{t.title}</div>
++              <div className="text-xs opacity-70">Pg {t.anchor.pageIndex + 1}{t.anchor.clauseRef ? ` • ${t.anchor.clauseRef}` : ""}</div>
++            </div>
++          ))}
++        </div>
++        <Button className="mt-auto" onClick={() => {
++          const title = window.prompt("Thread title?");
++          const question = title ? window.prompt("Your question?") : null;
++          if (title && question) addThread({ title, firstMessage: question, anchor: { pageIndex: page - 1 } });
++        }}>
++          <MessageSquarePlus className="w-4 h-4 mr-2" /> New AI chat here
++        </Button>
++      </div>
++    </div>
++  );
++}
+
+// web/src/styles/tailwind.css (ensure blush purple utility if not themed yet)
++@layer utilities {
++  .bg-blush-purple { background-color: #E6D7FF; }
++  .text-blush-ink { color: #3A2D5B; }
++  .border-blush { border-color: #C7B1F3; }
++}
+
+// server/middleware/authz.ts (ensure company in req)
++export function withCompany(req, _res, next) {
++  if (!req.session?.companyId) return next(new Error("No company in session"));
++  req.company = { id: req.session.companyId };
++  next();
++}
+
+
+Commands
+
+# Server deps for PDF + types (we stubbed extraction; you can add pdfjs later)
+npm i zod
+# Client PDF viewer
+npm i react-pdf pdfjs-dist
+# Ensure shadcn/ui tooltip is installed if not
+npm i @radix-ui/react-tooltip
+# DB migrate
+npm run db:push
+# Dev
+npm run dev
+npm run web
+
+
+Why this works
+
+Sticky notes are absolute-positioned and saved in normalized page-relative coordinates, so they scale with zoom and render consistently across devices.
+
+AI metadata extraction runs once per contract (fire-and-forget) and stores clause headings + definitions keyed by GC/Schedule refs to power fast UI hovers.
+
+Clause/definition tooltips use a blush-purple palette to match existing AI button styling and render instantly without re-parsing the PDF.
+
+Per-point AI chat threads are anchored to a page/selection/clauseRef and persisted, so conversations are resumable and discoverable later.
+
+Strict Zod validation and multi-tenant filters (companyId) on every route enforce security; types flow Drizzle→API→client for safety.
+
+React Query keeps notes/threads fresh with surgical invalidation on create; zoom and pagination are local state for snappy UX.
+
+Next checks
+
+Upload a contract without metadata: open it and confirm hasAiMetadata flips to true and clauses/definitions populate; hover a clause number to see its heading tooltip.
+
+Create notes from two different users; verify username stamps and both users can see each other’s notes after refetch.
+
+Start an AI thread on a clause: confirm thread anchor shows the correct page/clause; add replies and ensure they persist.
+
+Add pdf.js text-layer mapping to wrap clause numbers and defined terms with <span>—wire onMouseEnter to show tooltips at cursor (optional enhancement).
+
+Lock extraction with advisory locks or a “processing” flag to avoid duplicate runs; add rate limiting on note/thread creation.
+
+If not already in theme, replace raw hexes with Tailwind theme tokens and add focus/keyboard accessibility for all interactive elements.

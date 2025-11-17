@@ -1,0 +1,331 @@
+What we’re changing
+A single, app-wide typography + density system with three modes (narrow/medium/wide) that drives all tiles, graphs, grids, and menus. We add CSS variable tokens, Tailwind utilities, and a tiny Density context so your one setting controls font base size and grid spacing everywhere.
+
+Patch
+// web/tailwind.config.ts
+import type { Config } from 'tailwindcss'
+import plugin from 'tailwindcss/plugin'
+
+export default {
+  darkMode: ['class'],
+  content: ['index.html', 'src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['"Inter Variable"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
+    },
+  },
+  plugins: [
+    plugin(({ addComponents }) => {
+      // Semantic typography classes powered by CSS variables in tokens.css
+      addComponents({
+        '.text-display': { fontSize: 'var(--fs-display)', lineHeight: 'var(--lh-tight)', fontWeight: '700', letterSpacing: 'var(--ls-tight)' },
+        '.text-h1':      { fontSize: 'var(--fs-h1)',      lineHeight: 'var(--lh-tight)', fontWeight: '700', letterSpacing: 'var(--ls-tight)' },
+        '.text-h2':      { fontSize: 'var(--fs-h2)',      lineHeight: 'var(--lh-snug)',  fontWeight: '600' },
+        '.text-h3':      { fontSize: 'var(--fs-h3)',      lineHeight: 'var(--lh-snug)',  fontWeight: '600' },
+        '.text-subtitle':{ fontSize: 'var(--fs-subtitle)',lineHeight: 'var(--lh-snug)',  fontWeight: '600' },
+        '.text-body':    { fontSize: 'var(--fs-body)',    lineHeight: 'var(--lh-relaxed)', fontWeight: '500' },
+        '.text-data':    { fontSize: 'var(--fs-data)',    lineHeight: 'var(--lh-data)',  fontWeight: '500' },
+        '.text-data-xs': { fontSize: 'var(--fs-data-xs)', lineHeight: 'var(--lh-data)',  fontWeight: '500' },
+        '.text-caption': { fontSize: 'var(--fs-caption)', lineHeight: 'var(--lh-caption)', color: 'hsl(var(--muted-foreground))' },
+        '.text-mono':    { fontFamily: 'theme("fontFamily.mono")', fontSize: 'var(--fs-data)', lineHeight: 'var(--lh-data)' },
+      })
+    }),
+  ],
+} satisfies Config
+
+/* web/src/styles/tokens.css */
+/* Global typography + grid density tokens. Attach .density-[narrow|medium|wide] on a top-level div. */
+:root {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Line-height + tracking presets */
+  --lh-tight: 1.2;
+  --lh-snug: 1.3;
+  --lh-relaxed: 1.45;
+  --lh-data: 1.35;
+  --lh-caption: 1.25;
+  --ls-tight: -0.01em;
+
+  /* Base font size is set by density */
+  --fs-base: 14px; /* default if no density class present */
+
+  /* Font-size ramp derived from base */
+  --fs-display: calc(var(--fs-base) * 1.75);
+  --fs-h1:      calc(var(--fs-base) * 1.375);
+  --fs-h2:      calc(var(--fs-base) * 1.125);
+  --fs-h3:      calc(var(--fs-base) * 1.0);
+  --fs-subtitle:calc(var(--fs-base) * 0.9375);
+  --fs-body:    calc(var(--fs-base) * 0.9375);
+  --fs-data:    calc(var(--fs-base) * 0.875);
+  --fs-data-xs: calc(var(--fs-base) * 0.8125);
+  --fs-caption: calc(var(--fs-base) * 0.75);
+
+  /* Grid spacing + row heights (used by tables, lists, menus, tiles) */
+  --grid-gap: 8px;
+  --grid-cell-px: 10px;
+  --grid-cell-py: 6px;
+  --row-height: 32px;          /* table/list row */
+  --tile-gap: 12px;            /* card inner spacing */
+  --menu-item-py: 6px;         /* shadcn menus */
+  --menu-item-px: 10px;
+}
+
+/* DENSITY MODES — this is the single setting you control */
+.density-narrow {
+  --fs-base: 14px;
+  --grid-gap: 6px;
+  --grid-cell-px: 8px;
+  --grid-cell-py: 4px;
+  --row-height: 28px;
+  --tile-gap: 8px;
+  --menu-item-py: 4px;
+  --menu-item-px: 8px;
+}
+.density-medium {
+  --fs-base: 15px;
+  --grid-gap: 8px;
+  --grid-cell-px: 10px;
+  --grid-cell-py: 6px;
+  --row-height: 34px;
+  --tile-gap: 12px;
+  --menu-item-py: 6px;
+  --menu-item-px: 10px;
+}
+.density-wide {
+  --fs-base: 16px;
+  --grid-gap: 10px;
+  --grid-cell-px: 12px;
+  --grid-cell-py: 8px;
+  --row-height: 40px;
+  --tile-gap: 16px;
+  --menu-item-py: 8px;
+  --menu-item-px: 12px;
+}
+
+/* Primitive helpers that consume spacing tokens */
+:root {
+  --axis-font-size: var(--fs-data);
+  --table-header-font: var(--fs-data);
+  --table-cell-font: var(--fs-data);
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { font-family: var(--font-sans); }
+}
+
+/* web/src/index.css (append if missing Tailwind layers) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base defaults tied to tokens */
+@layer base {
+  body { @apply text-body; }
+}
+
+/* Utilities that apply spacing variables */
+@layer utilities {
+  .grid-gap { gap: var(--grid-gap); }
+  .tile-gap { padding: var(--tile-gap); }
+  .row-h { height: var(--row-height); }
+  .cell-pad { padding: var(--grid-cell-py) var(--grid-cell-px); }
+  .menu-item-pad { padding: var(--menu-item-py) var(--menu-item-px); }
+}
+
+// web/src/context/UiDensityContext.tsx
+import React from 'react'
+
+export type UiDensity = 'narrow' | 'medium' | 'wide'
+type Ctx = { density: UiDensity; setDensity: (d: UiDensity) => void }
+const UiDensityContext = React.createContext<Ctx | undefined>(undefined)
+
+const KEY = 'ui:density'
+function readInitial(): UiDensity {
+  const v = (localStorage.getItem(KEY) || 'narrow') as UiDensity
+  return v === 'narrow' || v === 'medium' || v === 'wide' ? v : 'narrow'
+}
+
+export function UiDensityProvider({ children }: { children: React.ReactNode }) {
+  const [density, setDensity] = React.useState<UiDensity>(readInitial)
+  React.useEffect(() => { localStorage.setItem(KEY, density) }, [density])
+  return (
+    <UiDensityContext.Provider value={{ density, setDensity }}>
+      <div className={`density-${density}`}>{children}</div>
+    </UiDensityContext.Provider>
+  )
+}
+
+export function useUiDensity() {
+  const ctx = React.useContext(UiDensityContext)
+  if (!ctx) throw new Error('useUiDensity must be used within UiDensityProvider')
+  return ctx
+}
+
+// web/src/components/DensitySwitcher.tsx
+import { useUiDensity } from '@/context/UiDensityContext'
+import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { SlidersHorizontal } from 'lucide-react'
+
+export default function DensitySwitcher() {
+  const { density, setDensity } = useUiDensity()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-2">
+          <SlidersHorizontal className="h-4 w-4" /> Density: {density}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[160px]">
+        {(['narrow','medium','wide'] as const).map(d => (
+          <DropdownMenuItem key={d} className="menu-item-pad text-data" onClick={() => setDensity(d)}>
+            {d}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// web/src/main.tsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Router } from 'wouter'
+import App from './App'
+import '@fontsource-variable/inter'
+import './index.css'
+import './styles/tokens.css'
+import { UiDensityProvider } from './context/UiDensityContext'
+
+const qc = new QueryClient()
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <QueryClientProvider client={qc}>
+      <Router>
+        <UiDensityProvider>
+          {/* Typography defaults are applied via tokens + Tailwind plugin */}
+          <App />
+        </UiDensityProvider>
+      </Router>
+    </QueryClientProvider>
+  </React.StrictMode>,
+)
+
+// web/src/components/table/DataTable.tsx
+// Example of a grid/table consuming tokens automatically.
+import * as React from 'react'
+
+type Col<T> = { key: keyof T; header: string; className?: string; width?: string }
+export function DataTable<T extends Record<string, unknown>>({ columns, rows }: { columns: Col<T>[]; rows: T[] }) {
+  return (
+    <div className="grid" style={{ gridTemplateColumns: columns.map(c => c.width ?? '1fr').join(' ') }}>
+      {/* header */}
+      {columns.map((c) => (
+        <div key={String(c.key)} className="text-data font-semibold text-muted-foreground cell-pad">{c.header}</div>
+      ))}
+      {/* rows */}
+      {rows.map((r, i) => (
+        <React.Fragment key={i}>
+          {columns.map((c) => (
+            <div key={String(c.key)} className={`text-data cell-pad row-h overflow-hidden text-ellipsis whitespace-nowrap ${c.className ?? ''}`}>
+              {String(r[c.key] ?? '')}
+            </div>
+          ))}
+        </React.Fragment>
+      ))}
+      <style>{`.grid { gap: var(--grid-gap); }`}</style>
+    </div>
+  )
+}
+
+// web/src/components/charts/rechartsTheme.tsx
+// Tiny helper to pull chart font sizes from CSS variables, so graphs follow density.
+import { useMemo } from 'react'
+
+function readVar(name: string, fallback: string) {
+  const root = document.documentElement
+  return getComputedStyle(root).getPropertyValue(name).trim() || fallback
+}
+
+export function useRechartsTheme() {
+  return useMemo(() => {
+    const axis = readVar('--axis-font-size', '12px')
+    const title = readVar('--fs-h3', '16px')
+    const label = readVar('--fs-data', '12px')
+    return {
+      axisStyle: { fontSize: axis, fontFamily: 'Inter Variable, ui-sans-serif, system-ui, sans-serif' },
+      titleStyle: { fontSize: title, fontWeight: 600 },
+      labelStyle: { fontSize: label },
+    }
+  }, [])
+}
+
+// web/src/components/charts/ExampleBar.tsx
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts'
+import { useRechartsTheme } from './rechartsTheme'
+
+export default function ExampleBar({ data }: { data: { name: string; value: number }[] }) {
+  const t = useRechartsTheme()
+  return (
+    <div className="rounded-2xl shadow-sm bg-card tile-gap">
+      <div className="text-h3 mb-2">Distribution</div>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" tick={{ ...t.axisStyle }} />
+          <YAxis tick={{ ...t.axisStyle }} />
+          <Tooltip wrapperStyle={{ fontSize: 'var(--fs-data)' }} />
+          <Bar dataKey="value" fill="hsl(var(--primary))" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// web/src/layout/AppShell.tsx
+// Example: menus, tiles inherit tokens with zero config.
+import { Link } from 'wouter'
+import DensitySwitcher from '@/components/DensitySwitcher'
+import { Button } from '@/components/ui/button'
+
+export default function AppShell({ children }: React.PropsWithChildren) {
+  return (
+    <div className="min-h-screen flex flex-col">
+      <header className="border-b bg-background">
+        <div className="max-w-screen-2xl mx-auto flex items-center justify-between p-3 gap-3">
+          <div className="text-h2">uJenga</div>
+          <nav className="flex items-center gap-2">
+            <Link href="/"><Button variant="ghost" className="text-data">Overview</Button></Link>
+            <Link href="/contract"><Button variant="ghost" className="text-data">Contract</Button></Link>
+            <DensitySwitcher />
+          </nav>
+        </div>
+      </header>
+      <main className="max-w-screen-2xl mx-auto p-4 grid-gap">{children}</main>
+    </div>
+  )
+}
+
+Commands
+npm i @fontsource-variable/inter
+# Ensure Tailwind is already configured to scan src/
+# No DB changes. Start dev:
+npm run web
+
+Why this works
+
+One control (narrow/medium/wide) sets --fs-base and all grid paddings/gaps/row-heights; every surface follows.
+
+Semantic font classes (text-data, text-h2, etc.) prevent ad-hoc sizes and keep dashboards, grids, and menus consistent.
+
+CSS variables guarantee shadcn/ui, tables, and Recharts inherit the same scale without per-component overrides.
+
+Variable Inter stays crisp at 12–16px, ideal for dense data UIs.
+
+Recharts hook reads CSS tokens so axis labels/titles auto-adjust with density.

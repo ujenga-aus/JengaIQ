@@ -1,0 +1,11 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "gitsafe-backup"]
+	url = git://gitsafe:5418/backup.git
+	fetch = +refs/heads/*:refs/remotes/gitsafe-backup/*
+[remote "origin"]
+	url = https://github.com/ujenga-aus/roger182.git
+	fetch = +refs/heads/*:refs/remotes/origin/*

@@ -1,0 +1,200 @@
+You are refactoring this repo to remove all mock/dummy data and wire every form to the real database. Keep seeds only for dev/test. Implement autosave and proper empty/loading states. Work through the checklist below end-to-end and show diffs.
+
+Constraints
+
+Frontend: React (Vite or CRA) assumed.
+
+Backend: Node + Express (or Fastify) with Prisma ORM.
+
+Database: SQLite in dev; upgradeable to Postgres in prod via DATABASE_URL.
+
+No component should import mock JSON/TS directly.
+
+Never fall back to mocks in production.
+
+0) Repo scan and plan
+
+Do a full-text search for these patterns and list all hits (file + line):
+
+mock, dummy, fixture, sample, demo, lipsum, FAKE_
+
+imports from mocks/, fixtures/, __data__, .json files under src
+
+any if (USE_MOCKS) or “fallback to mock if fetch fails”
+
+Output a short plan: which files to touch, which mocks to delete, which components to rewire.
+
+1) Add a clean data layer (no mocks)
+
+Create src/api/client.ts for the frontend:
+
+get<T>(path), post, patch, del helpers using fetch.
+
+JSON only; throw on non-2xx.
+
+Create src/api/resources.ts:
+
+One function per entity used by forms: e.g., getUsers, updateUser, getProjects, updateProject, etc.
+
+Replace all direct mock imports in components with calls to resources.ts.
+
+In each form component:
+
+Add loading and error state.
+
+If zero records, render “No records yet” + a Create button. Do not render demo rows.
+
+2) Backend API with Prisma
+
+Add Prisma:
+
+npm i -D prisma
+npm i @prisma/client
+npx prisma init --datasource-provider sqlite
+
+
+Define a minimal schema in prisma/schema.prisma covering the entities your forms use (users, roles, projects, RFIs, etc.). Include updatedAt and a version Int @default(1) for optimistic locking.
+
+Generate client:
+
+npx prisma migrate dev --name init
+npx prisma generate
+
+
+Create server/db.ts that exports a singleton Prisma client.
+
+Add REST endpoints in server/routes/*.ts:
+
+GET /api/users, PATCH /api/users/:id
+
+Same for other entities your forms edit.
+
+Support partial updates (PATCH) and include version checks; return 409 on mismatch.
+
+Wire the server in server/index.ts (Express or Fastify), JSON body parsing, CORS if needed.
+
+3) Autosave pattern (debounced) on forms
+
+Create src/hooks/useDebouncedAutosave.ts:
+
+Debounce 800ms; expose saving, error, flush(); retries with backoff on failure.
+
+In each edit form, switch to debounced autosave on onChange, immediate save on onBlur, and Ctrl/Cmd+S to flush().
+
+Add tiny status text near fields: Saving…, All changes saved, or Offline—retrying.
+
+4) Remove all mocks safely
+
+Delete mock files and imports. If something still references mocks, fix it to use the API layer.
+
+Add a guard: create src/guards/noMocks.ts that throws if any process.env.USE_MOCKS === 'true' in production. Import this once at app root.
+
+Add a Jest (or Vitest) test tests/no-mocks.test.ts that fails if any import path matches /mocks|fixtures|__data__/.
+
+5) Seeds (prod vs dev)
+
+Create prisma/seed.prod.ts with idempotent, minimal data:
+
+Roles (Admin, User, BUM), and an initial admin user admin@yourapp.com.
+
+Create prisma/seed.dev.ts with sample rows for local dev (never run in prod).
+
+Add scripts to package.json:
+
+{
+  "scripts": {
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "seed:prod": "ts-node prisma/seed.prod.ts",
+    "seed:dev": "ts-node prisma/seed.dev.ts"
+  }
+}
+
+
+Guard dev seeds:
+
+if (process.env.NODE_ENV === 'production') throw new Error('Refusing to run dev seeds in production');
+
+6) Environment and config
+
+Add .env.example with:
+
+DATABASE_URL="file:./dev.db"
+NODE_ENV=development
+
+
+Ensure Replit Secrets has DATABASE_URL set. In prod, you’ll set a Postgres URL.
+
+Add README.md “Runbook” with:
+
+npm run db:migrate
+
+npm run seed:dev
+
+npm run dev (server + client)
+
+How to switch to Postgres by setting DATABASE_URL.
+
+7) Replace Save buttons with intent actions (optional but recommended)
+
+Keep autosave for drafts.
+
+If any buttons remain, rename to Publish/Submit when they trigger workflow; keep Save only for admin/config screens.
+
+8) Verification (must pass before you’re done)
+
+Build and run server and client. Confirm:
+
+No component imports any mock/fixture file.
+
+Creating/editing data shows only DB data. No demo rows appear anywhere.
+
+Edits autosave and show status text. Refresh shows persisted changes.
+
+Kill network and type—status shows offline/retrying; data isn’t lost.
+
+Run tests (if configured) and add at least:
+
+The “no mocks” test.
+
+One API test for 409 version conflict.
+
+Show the final diff of all files changed and a short summary of what was removed/added.
+
+9) Commands to run (execute these as you go)
+# If Prisma not installed yet
+npm i -D prisma ts-node
+npm i @prisma/client
+
+# Init Prisma (if new)
+npx prisma init --datasource-provider sqlite
+
+# Migrate + generate
+npm run db:migrate
+npx prisma generate
+
+# Seed dev data locally
+npm run seed:dev
+
+# Start server and client (adjust if you use a monorepo)
+npm run dev
+
+10) Deliverables
+
+Updated source files (frontend API layer, server routes, Prisma schema).
+
+Removed mock files.
+
+Seed scripts (prod/dev) and package.json scripts.
+
+.env.example and README runbook.
+
+Short final report:
+
+Files touched
+
+What mocks were removed
+
+How each form now loads/saves real DB data
+
+Any follow-ups or TODOs

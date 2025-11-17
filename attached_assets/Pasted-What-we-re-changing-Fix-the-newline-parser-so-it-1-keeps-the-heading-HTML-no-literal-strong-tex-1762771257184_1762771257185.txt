@@ -1,0 +1,159 @@
+What we’re changing
+Fix the newline parser so it (1) keeps the heading HTML (no literal <strong> text), and (2) handles lines where a marker is on its own line—continuation lines now append inside the same list item instead of opening new grid cells. Result: no broken columns; (i) lines with the body on the next line render correctly.
+
+Patch
+
+// web/src/lib/formatContractTooltip.ts
+// Revised: keep heading HTML and keep <div class="li-body"> open while we append paragraphs.
+export function formatContractTooltip(raw: string): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lines = raw
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const depthOf = (marker: string): 0 | 1 | 2 | -1 =>
+    /^\([a-z]\)$/i.test(marker) ? 0 :
+    /^\([ivxlcdm]+\)$/i.test(marker) ? 1 :
+    /^\(\d+\)$/.test(marker) ? 2 : -1;
+
+  type Frame = { depth: number; openLi: boolean };
+  const out: string[] = [];
+  const stack: Frame[] = [];
+
+  const openList = (depth: number) => {
+    out.push(`<ol class="tlist" data-depth="${depth}">`);
+    stack.push({ depth, openLi: false });
+  };
+  const closeLiAtTop = () => {
+    const top = stack[stack.length - 1];
+    if (top?.openLi) {
+      out.push(`</div></li>`); // close li-body then li
+      top.openLi = false;
+    }
+  };
+  const closeToDepth = (target: number) => {
+    while (stack.length && stack[stack.length - 1].depth > target) {
+      closeLiAtTop();
+      out.push(`</ol>`);
+      stack.pop();
+    }
+  };
+
+  const startItem = (depth: number, marker: string, firstText: string) => {
+    if (!stack.length || stack[stack.length - 1].depth < depth) {
+      for (let d = stack.length ? stack[stack.length - 1].depth + 1 : 0; d <= depth; d++) {
+        openList(d);
+      }
+    } else if (stack[stack.length - 1].depth > depth) {
+      closeToDepth(depth);
+      closeLiAtTop();
+    } else {
+      // same level
+      closeLiAtTop();
+    }
+    // open li + body; DO NOT close body yet — we may append continuation lines
+    out.push(
+      `<li><span class="m">${esc(marker)}</span><div class="li-body">`
+    );
+    if (firstText) out.push(esc(firstText));
+    stack[stack.length - 1].openLi = true;
+  };
+
+  const para = (text: string) => {
+    // if a list item is open, this becomes a paragraph inside the body div
+    if (stack.length && stack[stack.length - 1].openLi) {
+      out.push(`<p class="tpara">${esc(text)}</p>`);
+    } else {
+      out.push(`<p class="tpara">${esc(text)}</p>`);
+    }
+  };
+
+  // Optional heading line "Term: …" that is NOT a marker line
+  if (lines.length) {
+    const first = lines[0];
+    const isMarkerFirst = /^\(\s*[a-zivxlcdm\d]+\s*\)/i.test(first);
+    if (!isMarkerFirst && /^[^()]+:/.test(first)) {
+      // push real HTML; do NOT escape the <strong>
+      out.push(`<p class="tpara"><strong>${esc(first)}</strong></p>`);
+      lines.shift();
+    }
+  }
+
+  const END_JOIN_RE = /\s*[;,]?\s*(?:and\/or|and|or)\s*$/i;
+
+  for (const line of lines) {
+    // If the line *starts* with a marker, it's a new item at the appropriate depth.
+    const m = line.match(/^\s*(\([a-z]\)|\([ivxlcdm]+\)|\(\d+\))\s*(.*)$/i);
+    if (m) {
+      const marker = m[1];
+      const bodyAfterMarker = (m[2] || "").trim();
+      const d = depthOf(marker);
+      if (d >= 0) {
+        const initialText = bodyAfterMarker.replace(END_JOIN_RE, "");
+        startItem(d, marker, initialText);
+        continue;
+      }
+    }
+    // Otherwise it's a continuation/paragraph line — append inside current li-body if open
+    para(line);
+  }
+
+  // Close any remaining structures
+  closeToDepth(-1);
+  return out.join("");
+}
+
+// web/src/components/PdfHoverHints.tsx
+// (unchanged except ensure you're using the formatter)
+import { formatContractTooltip } from "../lib/formatContractTooltip";
+
+/* ... inside your hover handler for definitions ... */
+if (t.hasAttribute(ATTR.defToken)) {
+  const token = t.getAttribute(ATTR.defToken)!;
+  const d = defMap.get(token);
+  if (d) {
+    const html = formatContractTooltip(`${d.term}: ${d.definition}`);
+    show(html);
+  }
+  return;
+}
+
+/* web/src/styles/contract-tooltips.css */
+/* Ensure grid doesn’t break when we add continuation paragraphs */
+.contract-tooltip ol.tlist { list-style: none; padding-left: 0; margin: .3rem 0; }
+.contract-tooltip ol.tlist > li {
+  display: grid;
+  grid-template-columns: auto 1fr;   /* marker | body */
+  column-gap: .6ch;
+  align-items: start;
+  margin: .3rem 0;
+}
+.contract-tooltip ol.tlist > li .m { width: 3ch; text-align: right; }
+.contract-tooltip ol.tlist[data-depth="1"] { margin-left: 1.25rem; }
+.contract-tooltip ol.tlist[data-depth="1"] > li .m { width: 3.6ch; }
+.contract-tooltip ol.tlist[data-depth="2"] { margin-left: 1.75rem; }
+.contract-tooltip ol.tlist[data-depth="2"] > li .m { width: 3.2ch; }
+
+.contract-tooltip .tpara { margin: .45rem 0; }
+.contract-tooltip ol.tlist > li .li-body .tpara { margin: .35rem 0 0 0; } /* paras inside items */
+
+
+Commands
+
+# frontend only
+npm run web
+
+
+Why this works
+
+No literal tags: heading is written as actual HTML (<strong>…</strong>), not escaped.
+
+Marker-only lines: when a line is just (i), we open the item and keep the body div open; following lines append inside that same item.
+
+Hanging indent preserved: the two-column grid (marker | body) remains intact because extra paragraphs live inside .li-body, not as sibling grid cells.
+
+Connectors trimmed: ; and, ; or, , and, ;and/or at line ends are removed cleanly.

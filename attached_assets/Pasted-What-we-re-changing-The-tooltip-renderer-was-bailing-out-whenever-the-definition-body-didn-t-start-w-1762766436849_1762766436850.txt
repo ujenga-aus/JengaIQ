@@ -1,0 +1,181 @@
+What we’re changing
+The tooltip renderer was bailing out whenever the definition body didn’t start with a marker (e.g. Affiliate: means: (a)…). We now treat prelude text (like means: / includes:) as a paragraph and then continue parsing the rest into a nested list, so (a) → (i) renders correctly.
+
+Patch
+
+// web/src/components/PdfHoverHints.tsx
+// Replace the renderNestedListHTML function with this version.
+function renderNestedListHTML(raw: string) {
+let out: string[] = [];
+const openLI: Record<number, boolean> = {};
+let deepest = -1;
+
+const push = (s: string) => out.push(s);
+const openListTo = (toDepth: number) => {
+for (let d = deepest + 1; d <= toDepth; d++) {
+push(<ol class="tlist" data-depth="${d}">);
+openLI[d] = false;
+deepest = d;
+}
+};
+const closeLIAt = (d: number) => {
+if (openLI[d]) {
+push(</li>);
+openLI[d] = false;
+}
+};
+const closeDownTo = (targetDepth: number) => {
+for (let d = deepest; d > targetDepth; d--) {
+closeLIAt(d);
+push(</ol>);
+delete openLI[d];
+}
+deepest = targetDepth;
+};
+const startItem = (depth: number, marker: string, body: string) => {
+if (deepest < 0) openListTo(depth);
+else if (depth > deepest) openListTo(depth);
+else if (depth < deepest) { closeDownTo(depth); closeLIAt(depth); }
+else { closeLIAt(depth); }
+push(
+<li><span class="m">${escapeHtml(marker)}</span><div class="li-body">${escapeHtml( body )}</div>
+);
+openLI[depth] = true;
+};
+const finish = () => closeDownTo(-1);
+
+// 1) Optional leading "Term: ..." — keep as a bold paragraph
+// 2) Then split any prelude words before the FIRST marker ("means:", "includes:", etc.)
+// 3) Parse the remainder into lists.
+let head = "";
+let body = raw;
+
+const termMatch = body.match(/^\s*([^:]+?):\s*(.*)$/s);
+if (termMatch) {
+const [, term, rest] = termMatch;
+head = <strong>${escapeHtml(term)}:</strong>;
+body = rest;
+}
+
+// Split at the first marker anywhere in the remaining text.
+const firstMarker = body.search(/
+\s
+∗
+[
+𝑎
+−
+𝑧
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+\d
+]
++
+\s
+∗
+\s∗[a−zivxlcdm\d]+\s∗/i);
+if (firstMarker === -1) {
+// No markers at all → just the head + text
+return <p class="tpara">${head ? head + " " : ""}${escapeHtml(body.trim())}</p>;
+}
+const prelude = body.slice(0, firstMarker).trim(); // e.g., "means:"
+const rest = body.slice(firstMarker);
+
+// Emit the head + prelude as a paragraph (if present)
+if (head || prelude) {
+push(<p class="tpara">${[head, escapeHtml(prelude)].filter(Boolean).join(" ")}</p>);
+}
+
+// Tokenize markers and the segments after them
+const TOK = /(
+[
+𝑎
+−
+𝑧
+]
+[a−z]|
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+|
+\d
++
+\d+)/gi;
+const segs = rest.split(TOK);
+
+const depthOf = (m: string) =>
+/^
+[
+𝑎
+−
+𝑧
+]
+[a−z]$/i.test(m) ? 0 : /^
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+$/i.test(m) ? 1 : /^
+\d
++
+\d+$/.test(m) ? 2 : -1;
+
+// Emit any text before the first marker in "rest" (normally empty)
+const preface = segs[0]?.trim();
+if (preface) push(<p class="tpara">${escapeHtml(preface)}</p>);
+
+for (let i = 1; i < segs.length; i += 2) {
+const marker = segs[i];
+const d = depthOf(marker);
+if (d < 0) continue;
+
+const segBody = (segs[i + 1] || "")
+  .trim()
+  // drop connector punctuation ";", "; and", "; or" at item end
+  .replace(/\s*;(?:\s*(?:and|or))?\s*$/i, "");
+
+startItem(d, marker, segBody);
+
+
+}
+
+finish();
+return out.join("");
+}
+
+function escapeHtml(s: string) {
+return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+}
+
+Commands
+
+npm run web
+
+Why this works
+
+Handles “Term: prelude … (a) …” by placing the prelude in a paragraph and then parsing the list that follows.
+
+Keeps the exact markers (a)/(b)/(i)/(ii) you have in the text—no counters—so letters like (d) don’t turn into (a).
+
+Opens child lists inside the current <li> so roman items sit under (a) exactly like the contract.
+
+Trims “; and/; or” at item ends so bullets don’t carry connectors.
+
+Pure client change—no server or DB changes.

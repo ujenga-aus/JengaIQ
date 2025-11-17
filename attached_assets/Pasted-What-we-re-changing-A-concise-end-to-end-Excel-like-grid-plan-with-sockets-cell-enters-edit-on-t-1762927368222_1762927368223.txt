@@ -1,0 +1,407 @@
+What we’re changing
+A concise, end-to-end “Excel-like grid” plan with sockets: cell enters edit on typing, Enter saves over WebSocket, arrow keys move with zero lag, and focus stays pinned on the edited cell after save. Includes minimal server Socket.IO wiring (auth + multi-tenant), Zod-validated events, and a React grid skeleton with optimistic updates.
+
+Patch
+
+// server/realtime.ts
+import type { Server as HTTPServer } from "http";
+import { Server } from "socket.io";
+import type { Express } from "express";
+import { z } from "zod";
+import session from "express-session";
+import pgSimple from "connect-pg-simple";
+import { db } from "./db/client"; // assume existing
+import { boqCells } from "./db/schema"; // see schema below
+import { eq, and } from "drizzle-orm";
+
+const CellSave = z.object({
+  companyId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  rowId: z.string(),
+  colKey: z.string().min(1),
+  value: z.string().max(20000).nullable(),
+  rev: z.number().int().nonnegative(), // client-side row rev to avoid stale overwrites
+});
+
+export function mountRealtime(app: Express, server: HTTPServer) {
+  const PgStore = pgSimple(session);
+  const sessionMiddleware = session({
+    store: new PgStore({ conString: process.env.DATABASE_URL! }),
+    secret: process.env.SESSION_SECRET!,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, secure: process.env.NODE_ENV === "production" },
+  });
+
+  app.use(sessionMiddleware);
+
+  const io = new Server(server, {
+    cors: { origin: true, credentials: true },
+  });
+
+  // Share session with Socket.IO
+  io.engine.use((req: any, res: any, next: any) => sessionMiddleware(req, res, next));
+
+  io.use((socket, next) => {
+    const sess = (socket.request as any).session;
+    if (!sess?.user) return next(new Error("unauthorized"));
+    next();
+  });
+
+  io.on("connection", (socket) => {
+    const sess = (socket.request as any).session;
+    const { user } = sess;
+
+    // Join tenant+project “room” so broadcasts are scoped
+    socket.on("room:join", (room: { companyId: string; projectId: string }) => {
+      if (room.companyId !== user.companyId) return;
+      socket.join(roomKey(room.companyId, room.projectId));
+    });
+
+    // Save a cell
+    socket.on("cell:save", async (payload: unknown, ack?: (res: { ok: true } | { ok: false; error: string }) => void) => {
+      const parsed = CellSave.safeParse(payload);
+      if (!parsed.success) return ack?.({ ok: false, error: "invalid" });
+      const { companyId, projectId, rowId, colKey, value, rev } = parsed.data;
+
+      // Multi-tenant guard
+      if (companyId !== user.companyId) return ack?.({ ok: false, error: "forbidden" });
+
+      // Upsert cell
+      try {
+        const now = new Date();
+        // optimistic concurrency: only update if rev matches current
+        const current = await db.query.boqCells.findFirst({
+          where: and(
+            eq(boqCells.companyId, companyId),
+            eq(boqCells.projectId, projectId),
+            eq(boqCells.rowId, rowId),
+            eq(boqCells.colKey, colKey)
+          ),
+        });
+
+        if (current && current.rev !== rev) {
+          return ack?.({ ok: false, error: "conflict" });
+        }
+
+        if (current) {
+          await db
+            .update(boqCells)
+            .set({ value, updatedBy: user.id, updatedAt: now, rev: current.rev + 1 })
+            .where(
+              and(
+                eq(boqCells.companyId, companyId),
+                eq(boqCells.projectId, projectId),
+                eq(boqCells.rowId, rowId),
+                eq(boqCells.colKey, colKey),
+                eq(boqCells.rev, rev)
+              )
+            );
+        } else {
+          await db.insert(boqCells).values({
+            companyId,
+            projectId,
+            rowId,
+            colKey,
+            value,
+            updatedBy: user.id,
+            updatedAt: now,
+            rev: 0,
+          });
+        }
+
+        const nextRev = current ? current.rev + 1 : 0;
+        const msg = { companyId, projectId, rowId, colKey, value, rev: nextRev, updatedBy: user.id, updatedAt: now.toISOString() };
+
+        // Broadcast to the room (excluding sender)
+        socket.to(roomKey(companyId, projectId)).emit("cell:update", msg);
+
+        // Ack success to the sender
+        ack?.({ ok: true });
+      } catch (e) {
+        ack?.({ ok: false, error: "server" });
+      }
+    });
+  });
+}
+
+function roomKey(c: string, p: string) {
+  return `c:${c}:p:${p}`;
+}
+
+// server/db/schema.ts (add table)
+// ... existing imports
+import { pgTable, text, varchar, timestamp, integer, primaryKey } from "drizzle-orm/pg-core";
+
+export const boqCells = pgTable(
+  "boq_cells",
+  {
+    companyId: varchar("company_id", { length: 36 }).notNull(),
+    projectId: varchar("project_id", { length: 36 }).notNull(),
+    rowId: text("row_id").notNull(),
+    colKey: text("col_key").notNull(),
+    value: text("value"),
+    updatedBy: varchar("updated_by", { length: 36 }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    rev: integer("rev").notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.companyId, t.projectId, t.rowId, t.colKey] }),
+  })
+);
+
+// server/index.ts (wire sockets)
+// ...
+import http from "http";
+import { mountRealtime } from "./realtime";
+// ...
+const app = express();
+// ... your normal middleware/routes
+const server = http.createServer(app);
+mountRealtime(app, server);
+server.listen(process.env.PORT ?? 3000, () => {
+  console.log("server listening");
+});
+
+// web/src/lib/socket.ts
+import { io } from "socket.io-client";
+
+export const socket = io("/", { withCredentials: true, autoConnect: true });
+
+export function joinRoom(companyId: string, projectId: string) {
+  socket.emit("room:join", { companyId, projectId });
+}
+
+export type CellUpdate = {
+  companyId: string;
+  projectId: string;
+  rowId: string;
+  colKey: string;
+  value: string | null;
+  rev: number;
+  updatedBy: string;
+  updatedAt: string;
+};
+
+// web/src/components/ExcelGrid.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { socket, type CellUpdate } from "@/lib/socket";
+import { cn } from "@/lib/utils"; // assume shadcn helper
+import { useQueryClient } from "@tanstack/react-query";
+
+// minimal types – adapt to your dataset
+export type Column = { key: string; name: string; width: number; align?: "left"|"right"|"center" };
+export type Row = { id: string; rev: number; [key: string]: any };
+
+type Props = {
+  companyId: string;
+  projectId: string;
+  columns: Column[];
+  rows: Row[];
+  onLocalPatch?: (patch: CellUpdate) => void; // optional hook to merge into external state
+};
+
+type Coord = { r: number; c: number };
+
+export default function ExcelGrid({ companyId, projectId, columns, rows, onLocalPatch }: Props) {
+  const qc = useQueryClient();
+  const [active, setActive] = useState<Coord>({ r: 0, c: 0 });
+  const [editing, setEditing] = useState<boolean>(false);
+  const [draft, setDraft] = useState<string>("");
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  // Subscribe to server updates and merge into cache without breaking focus
+  useEffect(() => {
+    const onUpdate = (msg: CellUpdate) => {
+      onLocalPatch?.(msg);
+      // optional: qc.setQueryData([...], updater)
+    };
+    socket.on("cell:update", onUpdate);
+    return () => {
+      socket.off("cell:update", onUpdate);
+    };
+  }, [qc, onLocalPatch]);
+
+  useEffect(() => {
+    // join once
+    socket.emit("room:join", { companyId, projectId });
+  }, [companyId, projectId]);
+
+  const cols = columns;
+  const cellId = (r: number, c: number) => `${rows[r]?.id}-${cols[c]?.key}`;
+
+  function startEdit(initialText: string) {
+    setEditing(true);
+    setDraft(initialText);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    const row = rows[active.r];
+    const col = cols[active.c];
+    const value = draft.length ? draft : null;
+
+    // optimistic – patch local row immediately
+    onLocalPatch?.({
+      companyId,
+      projectId,
+      rowId: row.id,
+      colKey: col.key,
+      value,
+      rev: row.rev + 1,
+      updatedBy: "me",
+      updatedAt: new Date().toISOString(),
+    });
+
+    // socket save with ack; keep focus on same cell regardless of outcome
+    socket.emit(
+      "cell:save",
+      { companyId, projectId, rowId: row.id, colKey: col.key, value, rev: row.rev },
+      (res: { ok: true } | { ok: false; error: string }) => {
+        if (!res.ok) {
+          // on conflict, refetch that row via query invalidation (fast, scoped)
+          // qc.invalidateQueries({ queryKey: ["boqRows", companyId, projectId, row.id] });
+          // TODO: surface toast
+        }
+      }
+    );
+
+    setEditing(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (editing) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        saveEdit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setEditing(false);
+      }
+      return;
+    }
+
+    // Not editing: keystrokes navigate like Excel
+    if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      setActive((prev) => {
+        const maxR = rows.length - 1;
+        const maxC = cols.length - 1;
+        if (e.key === "ArrowUp") return { r: Math.max(0, prev.r - 1), c: prev.c };
+        if (e.key === "ArrowDown") return { r: Math.min(maxR, prev.r + 1), c: prev.c };
+        if (e.key === "ArrowLeft") return { r: prev.r, c: Math.max(0, prev.c - 1) };
+        return { r: prev.r, c: Math.min(maxC, prev.c + 1) };
+      });
+      return;
+    }
+
+    // Typing anywhere starts edit with that character (Excel behavior)
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      startEdit(e.key);
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      // Enter moves down when not editing
+      setActive((prev) => ({ r: Math.min(rows.length - 1, prev.r + 1), c: prev.c }));
+    }
+  }
+
+  return (
+    <div
+      ref={tableRef}
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      className="overflow-auto rounded-2xl border border-border outline-none"
+    >
+      <div className="min-w-[900px]">
+        {/* Header */}
+        <div className="flex sticky top-0 bg-muted/60 backdrop-blur">
+          {cols.map((col) => (
+            <div key={col.key} className="px-3 py-2 text-xs font-medium border-r border-border" style={{ width: col.width }}>
+              {col.name}
+            </div>
+          ))}
+        </div>
+
+        {/* Rows */}
+        {rows.map((row, rIdx) => (
+          <div key={row.id} className="flex odd:bg-muted/20">
+            {cols.map((col, cIdx) => {
+              const isActive = active.r === rIdx && active.c === cIdx;
+              const raw = row[col.key] ?? "";
+              const showEditor = isActive && editing;
+              return (
+                <div
+                  key={cellId(rIdx, cIdx)}
+                  onMouseDown={() => setActive({ r: rIdx, c: cIdx })}
+                  className={cn(
+                    "px-3 py-1.5 border-r border-t border-border text-sm tabular-nums",
+                    col.align === "right" && "text-right",
+                    isActive && !showEditor && "ring-2 ring-primary/60 ring-offset-1 ring-offset-background"
+                  )}
+                  style={{ width: col.width }}
+                >
+                  {showEditor ? (
+                    <input
+                      autoFocus
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={saveEdit} // blur also saves
+                      className="w-full bg-transparent outline-none"
+                    />
+                  ) : (
+                    <span className="select-none">{String(raw)}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// web/src/state/useBoqLocalPatch.ts (optional tiny helper to keep focus stable)
+import { useState } from "react";
+import type { Row } from "@/components/ExcelGrid";
+import type { CellUpdate } from "@/lib/socket";
+
+export function useBoqLocalPatch(initial: Row[]) {
+  const [rows, setRows] = useState<Row[]>(initial);
+  const apply = (msg: CellUpdate) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === msg.rowId
+          ? { ...r, [msg.colKey]: msg.value, rev: msg.rev }
+          : r
+      )
+    );
+  };
+  return { rows, apply, setRows };
+}
+
+
+Commands
+
+npm i socket.io socket.io-client zod
+# If you changed schema:
+npm run db:push
+npm run dev
+
+
+Why this works
+
+Typing anywhere immediately flips the active cell into edit mode; Enter/Escape/blur save or cancel—mirrors Excel ergonomics.
+
+Socket.IO sends cell:save with Zod validation, multi-tenant guards, and optimistic concurrency (rev) to prevent stale overwrites.
+
+The client applies an optimistic patch and keeps active coordinates unchanged, so focus stays on the same cell after save/ack.
+
+Arrow keys navigate without lag because movement is purely local state—no network roundtrip.
+
+Room-based broadcasts (companyId+projectId) ensure only collaborators on the same project receive cell:update.
+
+Server uses the existing session store for socket auth; RBAC and tenancy enforced by checking session.user.companyId.

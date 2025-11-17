@@ -1,0 +1,247 @@
+Task: Migrate from single users table to normalized auth + RBAC + project access
+Goal
+
+Replace the current one-table users design with:
+
+people for HR/contact details
+
+user_accounts for login/auth
+
+roles, permissions, role_permissions, user_roles for company-wide RBAC
+
+project_roles, project_role_permissions, project_memberships for per-project access
+
+Keep all existing user data and logins. No downtime if possible.
+
+Assumptions (adjust if detection shows otherwise)
+
+Current DB is Postgres. If MySQL is detected, generate MySQL-compatible DDL.
+
+Existing table is users with at least: id, name, email, mobile (nullable), password_hash (or external id), maybe a role column.
+
+Projects table exists as projects(id, …) or will exist later. If missing, still create RBAC tables; stub project_memberships references for later.
+
+App uses an ORM (if detected: Prisma/TypeORM/SQLAlchemy/Knex). Update models + migrations accordingly.
+
+Deliverables
+
+Schema migrations (idempotent) to create new tables and FKs.
+
+Data backfill script to populate new tables from the old users rows.
+
+Compatibility layer: a view users_v_legacy that mirrors old columns so the app doesn’t break immediately.
+
+Code updates: models/queries refactored to the new schema.
+
+Rollback: migration down script.
+
+Tests: unit + a minimal integration path (create user, login, assign project role, permission check).
+
+DDL (Postgres first; generate MySQL variants if needed)
+
+Create these tables with safe IF NOT EXISTS guards:
+
+-- People
+CREATE TABLE IF NOT EXISTS people (
+  person_id     BIGSERIAL PRIMARY KEY,
+  given_name    VARCHAR(100) NOT NULL,
+  family_name   VARCHAR(100) NOT NULL,
+  email         CITEXT UNIQUE NOT NULL,
+  mobile        VARCHAR(40),
+  employee_no   VARCHAR(50) UNIQUE,
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Accounts
+CREATE TABLE IF NOT EXISTS user_accounts (
+  user_id       BIGSERIAL PRIMARY KEY,
+  person_id     BIGINT NOT NULL REFERENCES people(person_id) ON DELETE CASCADE,
+  username      CITEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  mfa_enabled   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(person_id)
+);
+
+-- Org roles & permissions (global)
+CREATE TABLE IF NOT EXISTS roles (
+  role_id   BIGSERIAL PRIMARY KEY,
+  code      VARCHAR(60) UNIQUE NOT NULL,
+  name      VARCHAR(120) NOT NULL,
+  description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS permissions (
+  permission_id BIGSERIAL PRIMARY KEY,
+  code          VARCHAR(100) UNIQUE NOT NULL,
+  description   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+  role_id       BIGINT NOT NULL REFERENCES roles(role_id) ON DELETE CASCADE,
+  permission_id BIGINT NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
+  PRIMARY KEY (role_id, permission_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_roles (
+  user_role_id BIGSERIAL PRIMARY KEY,
+  user_id      BIGINT NOT NULL REFERENCES user_accounts(user_id) ON DELETE CASCADE,
+  role_id      BIGINT NOT NULL REFERENCES roles(role_id),
+  start_date   DATE NOT NULL DEFAULT CURRENT_DATE,
+  end_date     DATE,
+  CHECK (end_date IS NULL OR end_date >= start_date)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_user_roles_active
+  ON user_roles(user_id, role_id) WHERE end_date IS NULL;
+
+-- Projects & project RBAC
+CREATE TABLE IF NOT EXISTS project_roles (
+  project_role_id BIGSERIAL PRIMARY KEY,
+  code            VARCHAR(60) UNIQUE NOT NULL,   -- e.g., 'PROJ_ADMIN','PM','ENGINEER','VIEWER'
+  name            VARCHAR(120) NOT NULL,
+  description     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS project_role_permissions (
+  project_role_id BIGINT NOT NULL REFERENCES project_roles(project_role_id) ON DELETE CASCADE,
+  permission_id   BIGINT NOT NULL REFERENCES permissions(permission_id) ON DELETE CASCADE,
+  PRIMARY KEY (project_role_id, permission_id)
+);
+
+-- Reference projects(project_id) if it exists; otherwise skip the FK and add later in a follow-up migration.
+CREATE TABLE IF NOT EXISTS project_memberships (
+  membership_id    BIGSERIAL PRIMARY KEY,
+  project_id       BIGINT NOT NULL,
+  user_id          BIGINT NOT NULL REFERENCES user_accounts(user_id) ON DELETE CASCADE,
+  project_role_id  BIGINT NOT NULL REFERENCES project_roles(project_role_id),
+  start_date       DATE NOT NULL DEFAULT CURRENT_DATE,
+  end_date         DATE,
+  assigned_by_user BIGINT REFERENCES user_accounts(user_id),
+  notes            TEXT,
+  CHECK (end_date IS NULL OR end_date >= start_date),
+  UNIQUE (project_id, user_id)
+);
+
+
+MySQL variants: use BIGINT AUTO_INCREMENT PRIMARY KEY, replace CITEXT with VARCHAR and case-insensitive collations, replace TIMESTAMPTZ with TIMESTAMP, and drop partial index predicate by emulating with a filtered unique index in code or trigger.
+
+Seed baseline RBAC
+
+Roles: ADMIN, BUM, EMPLOYEE
+
+Permissions (examples): USER.MANAGE, PROJECT.MANAGE, DOC.UPLOAD, DOC.VIEW, RFI.CREATE, RFI.APPROVE, COST.VIEW
+
+Map: ADMIN → all, BUM → PROJECT.MANAGE, DOC.UPLOAD, DOC.VIEW, RFI.APPROVE, COST.VIEW; EMPLOYEE → DOC.UPLOAD, DOC.VIEW, RFI.CREATE
+
+Generate an idempotent seed script that upserts by code.
+
+Data migration (backfill)
+
+Split name:
+
+From users.name, split on first space. Before running, attempt to parse “Last, First” variants.
+
+If not parseable, put full string in given_name, set family_name to empty.
+
+people:
+
+Insert one row per old users.id with email/mobile.
+
+user_accounts:
+
+For each person, set username = users.email (or users.username if present).
+
+Reuse password_hash exactly. Do not rehash.
+
+user_roles:
+
+If old table had role, map: admin → ADMIN, manager → BUM, else EMPLOYEE.
+
+Start date = today; end_date = NULL.
+
+Legacy view:
+
+Create users_v_legacy to expose columns id, name, email, mobile, role by joining new tables so the app keeps working while we refactor.
+
+Sample Postgres view:
+
+CREATE OR REPLACE VIEW users_v_legacy AS
+SELECT
+  ua.user_id AS id,
+  CONCAT(p.given_name, ' ', p.family_name) AS name,
+  p.email,
+  p.mobile,
+  COALESCE(r.code, 'EMPLOYEE') AS role
+FROM user_accounts ua
+JOIN people p ON p.person_id = ua.person_id
+LEFT JOIN LATERAL (
+  SELECT r.code
+  FROM user_roles ur
+  JOIN roles r ON r.role_id = ur.role_id
+  WHERE ur.user_id = ua.user_id AND ur.end_date IS NULL
+  ORDER BY ur.start_date DESC
+  LIMIT 1
+) role_now ON TRUE;
+
+App/ORM changes
+
+Generate models/entities for all new tables.
+
+Replace direct reads from users with reads from people + user_accounts (or temporarily the users_v_legacy view).
+
+Permission checks:
+
+Global: through user_roles → role_permissions → permissions.
+
+Project: through project_memberships → project_role_permissions → permissions.
+
+Add helper functions:
+
+getCurrentGlobalPermissions(userId)
+
+getCurrentProjectPermissions(userId, projectId)
+
+assignProjectRole(projectId, userId, code) (resolves code to project_role_id, creates/updates membership)
+
+Idempotency and safety
+
+Wrap migrations in a transaction.
+
+Use upserts (ON CONFLICT (code) DO UPDATE) for seed data.
+
+If an old users row’s email duplicates, log and skip; output a CSV of collisions.
+
+Don’t drop the old users table yet. Only deprecate and rename to users_legacy once the app runs clean on new models.
+
+Tests (minimum)
+
+Create a user → appears in people + user_accounts.
+
+Login works with existing password_hash.
+
+Assign ADMIN → can perform an admin-only action.
+
+Add to project with ENGINEER → can upload doc but cannot approve RFI (unless mapped).
+
+End a user_role → permission disappears.
+
+End a project_membership → project access revoked.
+
+Rollback
+
+Script to drop view + new tables in reverse dependency order.
+
+Recreate original users table from users_legacy if needed.
+
+Make rollback gated behind a confirmation env var to avoid accidents.
+
+Extras (nice to have)
+
+Trigger to auto-update people.updated_at and user_accounts.updated_at on change.
+
+Unique email domain policy checks if required.
+
+Optional employment_history and promotions tables (effective-dated titles/grades). If included, backfill a single current row per user from today.

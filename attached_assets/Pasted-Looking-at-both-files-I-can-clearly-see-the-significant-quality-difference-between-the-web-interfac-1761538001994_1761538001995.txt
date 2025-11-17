@@ -1,0 +1,41 @@
+Looking at both files, I can clearly see the significant quality difference between the web interface review (Excel) and the API review (Word document). Here's what's happening:
+Key Differences
+Web Interface Version (Excel) - High Quality:
+
+Comprehensive analysis with detailed explanations (often multiple paragraphs)
+Specific clause references found (e.g., "Clauses 5.3, 9.1, 9.9, 9.12")
+Nuanced compliance assessments (COMPLIANT, NON-COMPLIANT, PARTIALLY COMPLIANT)
+Detailed, actionable amendments with specific wording proposals
+Successfully analyzed 29 contract items with substantive findings
+
+API Version (Word) - Much Lower Quality:
+
+Repeatedly states "No specific clauses found" for most items
+Generic, templated responses that don't reflect actual contract analysis
+Confused about what to analyze - many entries discuss "N/A" as if it's a contract term
+Missing or minimal amendments (many just show "-")
+Superficial analysis that doesn't demonstrate actual document comprehension
+
+Likely Causes
+The quality difference suggests several possible issues with your API implementation:
+
+Document Access Problem: The contract document may not be properly accessible to the API call - it might not be in the context or might be truncated
+Missing Context/Instructions: The API version might not be receiving the same detailed instructions about:
+
+How to analyze contract clauses
+What benchmark requirements mean
+How to structure the analysis
+
+
+Token Limits: API calls may have stricter token limits that truncate the contract document
+System Prompt Differences: The web interface likely has specialized system prompts for contract analysis that your API integration isn't using
+File Upload Handling: The way documents are uploaded/processed may differ between web and API
+
+Recommendations
+To improve your API implementation:
+
+Ensure the full contract document is in the context
+Provide detailed system prompts about contract analysis methodology
+Check token limits and increase if needed
+Consider using the same prompting strategies as the web interface
+Verify that file uploads are processed correctly

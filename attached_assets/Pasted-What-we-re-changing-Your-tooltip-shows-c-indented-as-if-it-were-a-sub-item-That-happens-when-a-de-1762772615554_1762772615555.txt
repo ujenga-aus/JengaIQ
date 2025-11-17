@@ -1,0 +1,129 @@
+What we’re changing
+Your tooltip shows (c) indented as if it were a sub-item. That happens when a depth-1 list stays open from the prior item. We’ll make the renderer collapse back to depth 0 whenever we see a single-letter marker (a)…(z), and we’ll keep the “roman depth” only for i..xx. This guarantees (a)(b)(c) always align, even after a sublist.
+
+Patch
+
+// web/src/lib/formatContractTooltip.ts
+// Drop-in replacement for the formatter from the last step.
+// Changes:
+//  1) Force-close to depth 0 when a LETTER marker arrives.
+//  2) Roman numerals recognised only for i..xx (context-aware).
+
+export function formatContractTooltip(raw: string): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lines = raw.replace(/\r\n/g, "\n").split("\n").map(l => l.trim()).filter(Boolean);
+
+  type Frame = { depth: number; openLi: boolean };
+  const out: string[] = [];
+  const stack: Frame[] = [];
+
+  const hasOpenDepth = (d: number) => stack.some(fr => fr.depth === d && fr.openLi);
+  const topDepth = () => (stack.length ? stack[stack.length - 1].depth : -1);
+
+  // Only i..xx are treated as roman numerals
+  const ROMAN_SAFE_RE =
+    /^(?:i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii|xiii|xiv|xv|xvi|xvii|xviii|xix|xx)$/i;
+
+  const classifyDepth = (marker: string): 0 | 1 | 2 | -1 => {
+    const inner = marker.slice(1, -1).trim().toLowerCase();
+    if (/^\d+$/.test(inner)) return 2;
+    if (/^[a-z]+$/.test(inner)) {
+      // roman numerals only when we are already in a (a)-level item
+      if (hasOpenDepth(0) && ROMAN_SAFE_RE.test(inner)) return 1;
+      return 0;
+    }
+    return -1;
+  };
+
+  const openList = (depth: number) => {
+    out.push(`<ol class="tlist" data-depth="${depth}">`);
+    stack.push({ depth, openLi: false });
+  };
+  const closeLiAtTop = () => {
+    const top = stack[stack.length - 1];
+    if (top?.openLi) {
+      out.push(`</div></li>`);
+      top.openLi = false;
+    }
+  };
+  const closeToDepth = (target: number) => {
+    while (stack.length && stack[stack.length - 1].depth > target) {
+      closeLiAtTop();
+      out.push(`</ol>`);
+      stack.pop();
+    }
+  };
+
+  const startItem = (depth: number, marker: string, firstText: string, isLetter: boolean) => {
+    // ✅ If a LETTER item arrives, we must be back at top-level.
+    if (isLetter) closeToDepth(0);
+
+    if (!stack.length || topDepth() < depth) {
+      for (let d = stack.length ? topDepth() + 1 : 0; d <= depth; d++) openList(d);
+    } else if (topDepth() > depth) {
+      closeToDepth(depth);
+      closeLiAtTop();
+    } else {
+      closeLiAtTop(); // sibling
+    }
+
+    out.push(`<li><span class="m">${esc(marker)}</span><div class="li-body">`);
+    if (firstText) out.push(esc(firstText));
+    stack[stack.length - 1].openLi = true;
+  };
+
+  const para = (text: string) => {
+    out.push(`<p class="tpara">${esc(text)}</p>`);
+  };
+
+  // Optional heading line "Term: …"
+  if (lines.length) {
+    const first = lines[0];
+    const isMarkerFirst = /^\(\s*[a-zivxlcdm\d]+\s*\)/i.test(first);
+    if (!isMarkerFirst && /^[^()]+:/.test(first)) {
+      out.push(`<p class="tpara"><strong>${esc(first)}</strong></p>`);
+      lines.shift();
+    }
+  }
+
+  const END_JOIN_RE = /\s*[;,]?\s*(?:and\/or|and|or)\s*$/i;
+
+  for (const line of lines) {
+    const m = line.match(/^\s*(\([a-z]+\)|\([ivxlcdm]+\)|\(\d+\))\s*(.*)$/i);
+    if (m) {
+      const marker = m[1];
+      const bodyAfter = (m[2] || "").trim();
+      const inner = marker.slice(1, -1).trim();
+      const depth = classifyDepth(marker);
+      if (depth >= 0) {
+        const initialText = bodyAfter.replace(END_JOIN_RE, "");
+        const isLetter = /^[a-z]+$/i.test(inner) && !ROMAN_SAFE_RE.test(inner);
+        startItem(depth, marker, initialText, isLetter);
+        continue;
+      }
+    }
+    // continuation/paragraph line
+    para(line);
+  }
+
+  closeToDepth(-1);
+  return out.join("");
+}
+
+
+No CSS changes needed.
+
+Commands
+
+npm run web
+
+
+Why this works
+
+Letter bullets reset to level 0: even if a roman sublist (i)/(ii) was open, seeing (c) forces us to collapse back to the top list.
+
+Roman detection is strict (i..xx only), so (c) can’t be misread as roman.
+
+We still render the original markers and use the same grid-based hanging indent, so wrapping remains clean.

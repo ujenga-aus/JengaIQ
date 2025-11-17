@@ -1,0 +1,320 @@
+What we’re changing
+Fix the BOQ import so selecting the header row actually maps columns and parses ~1,800 lines. We add a robust XLSX parser (ExcelJS), explicit header-row handling (1-based), empty-row/merged-cell defenses, and a preview API that reports parsed vs skipped rows so you can see why “0 lines” was happening.
+
+Patch
+
+// server/routes/imports.ts
+import { Router } from "express";
+import multer from "multer";
+import ExcelJS from "exceljs";
+import { z } from "zod";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+/**
+ * Zod parse of query + expected columns. headerRow is 1-based to match Excel/ExcelJS UI.
+ */
+const querySchema = z.object({
+  headerRow: z.coerce.number().int().min(1),
+  sheet: z.string().optional(), // optional sheet name
+});
+
+const requiredColumns = [
+  // add/rename as needed; we match case-insensitively & trim
+  "item",
+  "description",
+  "unit",
+  "qty",
+  "rate",
+  "amount",
+];
+
+type NormalisedHeaderMap = Record<string, number>; // columnName -> 1-based column index
+
+function normalise(str: string) {
+  return str?.toString().trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+}
+
+function detectHeaderMap(headerRow: ExcelJS.Row): NormalisedHeaderMap {
+  const map: NormalisedHeaderMap = {};
+  headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+    // Prefer .text over .value to flatten rich types
+    const key = normalise(cell.text || String(cell.value ?? ""));
+    if (key) map[key] = colNumber;
+  });
+  return map;
+}
+
+function resolveColumnIndex(headerMap: NormalisedHeaderMap, aliases: string[]): number | undefined {
+  for (const a of aliases) {
+    const idx = headerMap[normalise(a)];
+    if (idx) return idx;
+  }
+  return undefined;
+}
+
+// A small alias set to cope with different BOQ header spellings
+const columnAliases: Record<string, string[]> = {
+  item: ["item", "item no", "item #", "no", "line", "line no"],
+  description: ["description", "item description", "desc", "work description"],
+  unit: ["unit", "uom", "unit of measure"],
+  qty: ["qty", "quantity", "q'ty", "q-ty"],
+  rate: ["rate", "unit rate", "unit price", "price"],
+  amount: ["amount", "total", "line total", "value"],
+  // add more optional ones if you need:
+  code: ["code", "wbs", "cost code"],
+};
+
+function safeNumber(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+  // ExcelJS .value can be a number, string, Date, object; prefer .text
+  const s = typeof raw === "string" ? raw : String(raw);
+  const cleaned = s.replace(/[, ]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+export const importsRouter = Router();
+
+/**
+ * POST /imports/boq/preview?headerRow=2&sheet=Sheet1
+ * Form-Data: file (xlsx)
+ * Returns a preview + counts; does NOT persist yet.
+ * Requires session with company_id; RBAC check if you need it.
+ */
+importsRouter.post(
+  "/boq/preview",
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      const user = req.user as { id: string; companyId: string } | undefined;
+      if (!user?.companyId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { headerRow, sheet } = querySchema.parse(req.query);
+
+      if (!req.file) {
+        return res.status(400).json({ error: "file is required" });
+      }
+      if (!/\.xlsx$/i.test(req.file.originalname)) {
+        return res.status(400).json({ error: "Only .xlsx files supported for now" });
+      }
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(req.file.buffer);
+
+      const ws =
+        (sheet ? wb.getWorksheet(sheet) : wb.worksheets[0]) ??
+        wb.worksheets[0];
+      if (!ws) {
+        return res.status(400).json({ error: "No worksheet found" });
+      }
+
+      // ExcelJS rows are 1-based. Defensive clamp of headerRow into range.
+      const lastRow = ws.actualRowCount || ws.rowCount;
+      const hdrRowIdx = Math.min(Math.max(headerRow, 1), Math.max(1, lastRow));
+      const header = ws.getRow(hdrRowIdx);
+      if (!header || header.cellCount === 0) {
+        return res.status(400).json({ error: `Header row ${hdrRowIdx} is empty` });
+      }
+
+      // Build a map from normalised header label -> column index
+      const headerMap = detectHeaderMap(header);
+
+      // Resolve required columns using aliases
+      const columnIndex: Record<string, number> = {};
+      const missing: string[] = [];
+      for (const col of requiredColumns) {
+        const idx = resolveColumnIndex(headerMap, columnAliases[col] ?? [col]);
+        if (idx) columnIndex[col] = idx;
+        else missing.push(col);
+      }
+
+      if (missing.length) {
+        return res.status(400).json({
+          error: "Missing required columns",
+          details: { missing, detectedHeaders: Object.keys(headerMap) },
+        });
+      }
+
+      const startDataRow = hdrRowIdx + 1;
+
+      const rows: Array<{
+        item?: string;
+        description?: string;
+        unit?: string;
+        qty?: number | null;
+        rate?: number | null;
+        amount?: number | null;
+        _row: number;
+        _skipped?: string;
+      }> = [];
+
+      let parsed = 0;
+      let skippedEmpty = 0;
+      let skippedInvalid = 0;
+
+      // Iterate from header+1 to last non-empty row
+      for (let r = startDataRow; r <= lastRow; r++) {
+        const row = ws.getRow(r);
+        // Detect "empty" row: no text in key cells
+        const itemText = row.getCell(columnIndex.item).text?.trim();
+        const descText = row.getCell(columnIndex.description).text?.trim();
+        const unitText = row.getCell(columnIndex.unit).text?.trim();
+        const qtyVal = safeNumber(row.getCell(columnIndex.qty).text || row.getCell(columnIndex.qty).value);
+        const rateVal = safeNumber(row.getCell(columnIndex.rate).text || row.getCell(columnIndex.rate).value);
+        const amountVal = safeNumber(row.getCell(columnIndex.amount).text || row.getCell(columnIndex.amount).value);
+
+        const isEmpty =
+          !itemText && !descText && !unitText && qtyVal === null && rateVal === null && amountVal === null;
+
+        if (isEmpty) {
+          skippedEmpty++;
+          continue;
+        }
+
+        // Validate minimally: must have description, and qty or amount
+        if (!descText || (qtyVal === null && amountVal === null)) {
+          rows.push({
+            item: itemText,
+            description: descText,
+            unit: unitText,
+            qty: qtyVal,
+            rate: rateVal,
+            amount: amountVal,
+            _row: r,
+            _skipped: "Missing description or qty/amount",
+          });
+          skippedInvalid++;
+          continue;
+        }
+
+        rows.push({
+          item: itemText,
+          description: descText,
+          unit: unitText,
+          qty: qtyVal,
+          rate: rateVal,
+          amount: amountVal,
+          _row: r,
+        });
+        parsed++;
+      }
+
+      // Provide a compact preview; large payloads can be heavy
+      const preview = rows.slice(0, 50);
+
+      return res.json({
+        sheetName: ws.name,
+        headerRow: hdrRowIdx,
+        columnsResolved: columnIndex,
+        counts: {
+          totalRows: lastRow,
+          dataRowsChecked: lastRow - hdrRowIdx,
+          parsed,
+          skippedEmpty,
+          skippedInvalid,
+        },
+        sample: preview,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// server/index.ts (only the added lines shown; keep your existing app setup)
+import express from "express";
+import session from "express-session";
+import pg from "pg";
+import connectPgSimple from "connect-pg-simple";
+import { importsRouter } from "./routes/imports"; // <-- add
+
+// ... your existing setup ...
+
+app.use("/imports", importsRouter); // <-- mount after auth/session middleware
+
+// server/types/express.d.ts
+// Ensures req.user has companyId available to routes
+import "express-session";
+
+declare module "express-session" {
+  interface SessionData {
+    user?: { id: string; companyId: string; email?: string; roles?: string[] };
+  }
+}
+
+declare global {
+  namespace Express {
+    interface User {
+      id: string;
+      companyId: string;
+      email?: string;
+      roles?: string[];
+    }
+  }
+}
+
+
+Optional (client preview hook + call):
+
+// web/src/api/useBoqPreview.ts
+import { useMutation } from "@tanstack/react-query";
+
+export function useBoqPreview() {
+  return useMutation({
+    mutationFn: async (args: { file: File; headerRow: number; sheet?: string }) => {
+      const fd = new FormData();
+      fd.append("file", args.file);
+      const q = new URLSearchParams({ headerRow: String(args.headerRow), ...(args.sheet ? { sheet: args.sheet } : {}) });
+      const res = await fetch(`/imports/boq/preview?${q.toString()}`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e?.error || `Import failed (${res.status})`);
+      }
+      return res.json() as Promise<{
+        sheetName: string;
+        headerRow: number;
+        columnsResolved: Record<string, number>;
+        counts: { totalRows: number; dataRowsChecked: number; parsed: number; skippedEmpty: number; skippedInvalid: number };
+        sample: unknown[];
+      }>;
+    },
+  });
+}
+
+
+Commands
+
+npm i exceljs multer zod
+npm run dev
+
+
+Why this works
+
+Handles Excel’s 1-based indexing and clamps headerRow, fixing the common off-by-one that yields “0 lines”.
+
+Builds a normalised header map and resolves columns using aliases (e.g., Qty, Quantity, Q'ty), so slight header differences don’t break parsing.
+
+Uses .text from ExcelJS cells to flatten dates/numbers/strings and safeNumber to coerce numeric fields; merged/typed cells won’t silently drop data.
+
+Skips truly empty rows and flags invalid rows with reasons, so you can see why lines were excluded instead of returning 0.
+
+Returns a capped preview + counts to debug large (1,800+ row) files without overloading the client; no persistence yet, so it’s safe to iterate.
+
+Next checks
+
+Try with your 1,800-line BOQ: pass headerRow exactly as you pick in the UI (remember it’s 1-based like Excel). parsed should be close to your data count.
+
+If you get “Missing required columns”, check the API’s detectedHeaders and either adjust your sheet or extend columnAliases.
+
+Inspect sample for _skipped reasons; tweak validation if you want to accept lines without rate but with amount (or vice versa).
+
+Once preview looks good, wire a /imports/boq/commit endpoint to persist rows into your boq_items table (filter by company_id!).
+
+If your file is CSV, add a CSV branch (Papa Parse/fast-csv) before ExcelJS load.

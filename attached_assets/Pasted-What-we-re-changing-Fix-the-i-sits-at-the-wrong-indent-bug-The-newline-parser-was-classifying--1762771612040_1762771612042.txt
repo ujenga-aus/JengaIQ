@@ -1,0 +1,125 @@
+What we’re changing
+Fix the “(i) sits at the wrong indent” bug. The newline parser was classifying "(i)" as a letter (depth 0) instead of a roman (depth 1). We make depth detection context-aware: if we’re inside a depth-0 item, a lone roman like "(i)" is treated as depth 1. This preserves the correct nesting (a) → (i) → (ii).
+
+Patch
+
+// web/src/lib/formatContractTooltip.ts
+// Only the classifier + its usage changed; rest stays the same.
+
+export function formatContractTooltip(raw: string): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const lines = raw.replace(/\r\n/g, "\n").split("\n").map(l => l.trim()).filter(Boolean);
+
+  type Frame = { depth: number; openLi: boolean };
+  const out: string[] = [];
+  const stack: Frame[] = [];
+
+  const hasOpenDepth = (d: number) => stack.some(fr => fr.depth === d && fr.openLi);
+
+  /** Context-aware depth classifier.
+   *  - numbers → 2
+   *  - roman → 1 (but if no parent open, and it's a single roman char, allow 0)
+   *  - single letter → 0
+   */
+  const classifyDepth = (marker: string): 0 | 1 | 2 | -1 => {
+    const inner = marker.slice(1, -1).toLowerCase();
+    if (/^\d+$/.test(inner)) return 2;
+    if (/^(?:[ivxlcdm]+)$/.test(inner)) {
+      // If we are currently inside a (a) level item, roman should be sub-level (1)
+      if (hasOpenDepth(0)) return 1;
+      // If multiple roman chars, it's clearly roman numerals
+      if (inner.length > 1) return 1;
+      // Single roman char with no parent open: allow it to be top-level (rare but possible)
+      return 0;
+    }
+    if (/^[a-z]$/.test(inner)) return 0;
+    return -1;
+  };
+
+  const openList = (depth: number) => {
+    out.push(`<ol class="tlist" data-depth="${depth}">`);
+    stack.push({ depth, openLi: false });
+  };
+  const closeLiAtTop = () => {
+    const top = stack[stack.length - 1];
+    if (top?.openLi) {
+      out.push(`</div></li>`);
+      top.openLi = false;
+    }
+  };
+  const closeToDepth = (target: number) => {
+    while (stack.length && stack[stack.length - 1].depth > target) {
+      closeLiAtTop();
+      out.push(`</ol>`);
+      stack.pop();
+    }
+  };
+  const startItem = (depth: number, marker: string, firstText: string) => {
+    if (!stack.length || stack[stack.length - 1].depth < depth) {
+      for (let d = stack.length ? stack[stack.length - 1].depth + 1 : 0; d <= depth; d++) openList(d);
+    } else if (stack[stack.length - 1].depth > depth) {
+      closeToDepth(depth);
+      closeLiAtTop();
+    } else {
+      closeLiAtTop(); // same level sibling
+    }
+    out.push(`<li><span class="m">${esc(marker)}</span><div class="li-body">`);
+    if (firstText) out.push(esc(firstText));
+    stack[stack.length - 1].openLi = true;
+  };
+
+  const para = (text: string) => {
+    out.push(`<p class="tpara">${esc(text)}</p>`);
+  };
+
+  // Heading line "Term: …" (not a marker line)
+  if (lines.length) {
+    const first = lines[0];
+    const isMarkerFirst = /^\(\s*[a-zivxlcdm\d]+\s*\)/i.test(first);
+    if (!isMarkerFirst && /^[^()]+:/.test(first)) {
+      out.push(`<p class="tpara"><strong>${esc(first)}</strong></p>`);
+      lines.shift();
+    }
+  }
+
+  const END_JOIN_RE = /\s*[;,]?\s*(?:and\/or|and|or)\s*$/i;
+
+  for (const line of lines) {
+    const m = line.match(/^\s*(\([a-z]\)|\([ivxlcdm]+\)|\(\d+\))\s*(.*)$/i);
+    if (m) {
+      const marker = m[1];
+      const bodyAfter = (m[2] || "").trim();
+      const depth = classifyDepth(marker);
+      if (depth >= 0) {
+        const initialText = bodyAfter.replace(END_JOIN_RE, "");
+        startItem(depth, marker, initialText);
+        continue;
+      }
+    }
+    // continuation line or plain paragraph
+    para(line);
+  }
+
+  closeToDepth(-1);
+  return out.join("");
+}
+
+
+No CSS changes needed if you already have the two-column grid (marker | body) and the data-depth offsets we added earlier.
+
+Commands
+
+npm run web
+
+
+Why this works
+
+Treats "(i)" as roman depth 1 when we’re inside a (a) item, so it nests correctly.
+
+Still allows "(i)" to be top-level (depth 0) only when there’s no parent open (edge case where a list starts at “(i)”).
+
+Keeps the list inside the parent li-body, so sub-items are visually indented with proper hanging indents.
+
+No renumbering—renders the actual markers from your saved text.

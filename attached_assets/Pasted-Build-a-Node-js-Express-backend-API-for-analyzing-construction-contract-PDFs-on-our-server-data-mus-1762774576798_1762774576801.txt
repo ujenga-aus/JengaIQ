@@ -1,0 +1,75 @@
+Build a Node.js/Express backend API for analyzing construction contract PDFs on our server (data must NOT leave our servers).
+
+REQUIREMENTS:
+
+1. CREATE ENDPOINT: POST /api/analyze-contract
+   - Accept PDF file upload
+   - Extract text from PDF on our server using pdf-parse
+   - Parse and count definitions
+   - Parse and count numbered clause headings
+   - Store results in database (use SQLite for now)
+   - Return JSON with counts and lists
+
+2. DEFINITION EXTRACTION PATTERNS:
+   Identify definitions common in Australian construction contracts:
+   - Quoted terms followed by "means" or "includes"
+   - Terms in CAPITALS defined in definition clauses
+   - Pattern: "Term" means...
+   - Pattern: In this Contract, "Term" means...
+   - Pattern: TERM means...
+   - Common in AS4000, AS4300, AS4902, AS4917 contracts
+
+3. NUMBERED HEADING EXTRACTION:
+   Match Australian construction contract numbering:
+   - Single level: 1, 2, 3
+   - Multi-level: 1.1, 2.3.4, 10.2.1
+   - Format: [number] [HEADING TEXT]
+   - Ignore page numbers and references
+
+4. DATABASE SCHEMA:
+   Table: contract_analyses
+   - id (auto)
+   - filename
+   - upload_date
+   - definition_count
+   - heading_count
+   - definitions (JSON array)
+   - headings (JSON array)
+   - full_text (stored encrypted)
+
+5. REACT FRONTEND:
+   - File upload component
+   - Display loading state
+   - Show results: counts + expandable lists
+   - Clean UI for construction professionals
+
+6. SECURITY:
+   - Validate file is PDF
+   - Limit file size to 50MB
+   - Rate limiting on endpoint
+   - No data sent to external APIs
+
+PACKAGES TO USE:
+- express
+- multer (file uploads)
+- pdf-parse (PDF text extraction)
+- better-sqlite3 (database)
+- cors
+
+Return analysis results in this format:
+{
+  "success": true,
+  "filename": "contract.pdf",
+  "results": {
+    "definitionCount": 45,
+    "headingCount": 127,
+    "definitions": ["Contractor", "Site", "Works", ...],
+    "headings": [
+      {"number": "1", "text": "INTERPRETATION"},
+      {"number": "1.1", "text": "Definitions"},
+      ...
+    ]
+  }
+}
+
+Make the extraction robust for Australian standard form contracts (AS series) and typical construction management agreements.

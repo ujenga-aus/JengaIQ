@@ -1,0 +1,79 @@
+/* Global typography + grid density tokens. Attach .density-[narrow|medium|wide] on a top-level div. */
+:root {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Line-height + tracking presets */
+  --lh-tight: 1.2;
+  --lh-snug: 1.3;
+  --lh-relaxed: 1.45;
+  --lh-data: 1.35;
+  --lh-caption: 1.25;
+  --ls-tight: -0.01em;
+
+  /* Base font size is set by density */
+  --fs-base: 14px; /* default if no density class present */
+
+  /* Font-size ramp derived from base */
+  --fs-display: calc(var(--fs-base) * 1.75);
+  --fs-h1:      calc(var(--fs-base) * 1.375);
+  --fs-h2:      calc(var(--fs-base) * 1.125);
+  --fs-h3:      calc(var(--fs-base) * 1.0);
+  --fs-subtitle:calc(var(--fs-base) * 0.9375);
+  --fs-body:    calc(var(--fs-base) * 0.9375);
+  --fs-data:    calc(var(--fs-base) * 0.875);
+  --fs-data-xs: calc(var(--fs-base) * 0.8125);
+  --fs-caption: calc(var(--fs-base) * 0.75);
+
+  /* Grid spacing + row heights (used by tables, lists, menus, tiles) */
+  --grid-gap: 8px;
+  --grid-cell-px: 10px;
+  --grid-cell-py: 6px;
+  --row-height: 32px;          /* table/list row */
+  --tile-gap: 12px;            /* card inner spacing */
+  --menu-item-py: 6px;         /* shadcn menus */
+  --menu-item-px: 10px;
+}
+
+/* DENSITY MODES — this is the single setting you control */
+.density-narrow {
+  --fs-base: 14px;
+  --grid-gap: 6px;
+  --grid-cell-px: 8px;
+  --grid-cell-py: 4px;
+  --row-height: 28px;
+  --tile-gap: 8px;
+  --menu-item-py: 4px;
+  --menu-item-px: 8px;
+}
+.density-medium {
+  --fs-base: 15px;
+  --grid-gap: 8px;
+  --grid-cell-px: 10px;
+  --grid-cell-py: 6px;
+  --row-height: 34px;
+  --tile-gap: 12px;
+  --menu-item-py: 6px;
+  --menu-item-px: 10px;
+}
+.density-wide {
+  --fs-base: 16px;
+  --grid-gap: 10px;
+  --grid-cell-px: 12px;
+  --grid-cell-py: 8px;
+  --row-height: 40px;
+  --tile-gap: 16px;
+  --menu-item-py: 8px;
+  --menu-item-px: 12px;
+}
+
+/* Primitive helpers that consume spacing tokens */
+:root {
+  --axis-font-size: var(--fs-data);
+  --table-header-font: var(--fs-data);
+  --table-cell-font: var(--fs-data);
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { font-family: var(--font-sans); }
+}

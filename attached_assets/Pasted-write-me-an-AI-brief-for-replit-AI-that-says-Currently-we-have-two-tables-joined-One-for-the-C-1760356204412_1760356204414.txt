@@ -1,0 +1,10 @@
+write me an AI brief for replit AI that says : 
+Currently we have two tables joined. One for the "Contract Template" and one for the "Contract Reviews" that are stored in revisions. Currently we create colums for all fields not used from "Contract Template". 
+What I want table 2 to do is when it gets setup on Rev 1 that the user gets all columns from "Contract Template" that are tagged not editable as well as DOA as mandatory. Table 2 is then joined and linked to the ID of “Contract Template so that all rows line up.
+Table 2 is for the “Contract Review” where the user gets columns for “Summary Position of Contract”, “Clause Reference”.
+
+Table 3 which will then need to link to Table 2 ID number as it will have one or many rows needs “Notes”, “Requires Approval”, “Proposed Mitigation (price / qualify)”, “Approved” or “Rejected” column that the respective DOA person gets to login and do and can provide a comment at this point. 
+When a new revision is created, table 2 and table 3 are copied to the new revision number and all previous revisions are locked.
+
+In summary. We are using a table that has a series of contract questions “Contract Template” that we then use those questions as the constant base, and we create Rev 01 which includes a contract from a client and start the review. We may revise the REV as we have management meeting and get actions so we create a Rev 02 for a snapshot so we can review back to rev 01 if we need. We then work in Rev 02 until we revise again without a new contract from the client, or we could revise the review because a new contract comes in from the client. But within the live Revision (max Rev number) we propose a “mitigation” where the reklevent DOA person will be asked to login and review, if they are in agreement they can Approve with comment and then that one is locked and resolved. If the “Reject” with comments then the team would add another “mitigation” to that table 2 row for approval. The Approve” “Reject” column is like a thread of the team working to a position where they can resolve the item for submission.
+

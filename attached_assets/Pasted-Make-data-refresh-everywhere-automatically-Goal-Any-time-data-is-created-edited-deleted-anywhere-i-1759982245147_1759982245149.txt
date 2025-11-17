@@ -1,0 +1,217 @@
+Make data refresh everywhere, automatically
+
+Goal
+Any time data is created/edited/deleted anywhere in the app, every other place that depends on that data (tables, counts, graphs, metrics, dashboard tiles, titles/descriptions) updates without F5.
+
+Assumptions
+
+Frontend = React.
+
+We will standardise on TanStack Query (React Query) for data fetching, caching, and invalidation.
+
+If the app already uses Redux/Zustand, keep them for UI state only; server data belongs to React Query.
+
+1) Install and wire React Query
+npm i @tanstack/react-query
+
+
+Wrap the app:
+
+// src/main.tsx or src/index.tsx
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchOnMount: 'always',
+      staleTime: 0, // keep short to avoid stale dashboards
+    },
+  },
+});
+
+root.render(
+  <QueryClientProvider client={queryClient}>
+    <App />
+  </QueryClientProvider>
+);
+
+2) Create a single API layer and typed query keys
+
+Make src/api/http.ts with get/post/patch/delete helpers.
+
+Make src/api/keys.ts to centralise query keys. Example:
+
+export const qk = {
+  users: () => ['users'] as const,
+  user: (id: string) => ['users', id] as const,
+  projects: () => ['projects'] as const,
+  project: (id: string) => ['projects', id] as const,
+  // Aggregates / dashboards:
+  metrics: () => ['metrics'] as const,
+  graph: (name: string, params?: unknown) => ['graph', name, params] as const,
+  // Lists that back tables:
+  rfis: (projectId?: string) => ['rfis', { projectId }] as const,
+};
+
+3) Convert every data read to useQuery hooks
+
+Create src/api/hooks.ts:
+
+import { useQuery } from '@tanstack/react-query';
+import { qk } from './keys';
+import { get } from './http';
+
+export function useUsers() {
+  return useQuery({ queryKey: qk.users(), queryFn: () => get('/api/users') });
+}
+export function useUser(id: string) {
+  return useQuery({ queryKey: qk.user(id), queryFn: () => get(`/api/users/${id}`), enabled: !!id });
+}
+export function useMetrics() {
+  return useQuery({ queryKey: qk.metrics(), queryFn: () => get('/api/metrics') });
+}
+// Repeat for projects, rfis, graphs, etc.
+
+
+Refactor all components to read via these hooks.
+Important: do not stash server results in long-lived local state; render directly from query data or selectors derived from it.
+
+4) Convert every write to useMutation + cache updates
+
+In src/api/mutations.ts:
+
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { qk } from './keys';
+import { patch, post, del } from './http';
+
+export function useUpdateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; data: any }) =>
+      patch(`/api/users/${payload.id}`, payload.data),
+    onSuccess: (_data, variables) => {
+      // 1) update exact item if we have it
+      qc.invalidateQueries({ queryKey: qk.user(variables.id) });
+      // 2) invalidate collections and aggregates that depend on it
+      qc.invalidateQueries({ queryKey: qk.users() });
+      qc.invalidateQueries({ queryKey: qk.metrics() });
+      qc.invalidateQueries({ queryKey: qk.graph('usersByRole') });
+      // add more invalidations as needed for dashboards/counters
+    },
+  });
+}
+
+
+Pattern: for every create/update/delete mutation, call invalidateQueries for:
+
+the item (user(id)),
+
+the parent list (users()),
+
+any dashboards/graphs/metrics query keys that derive from that data.
+
+If you know the new value, also do an optimistic update:
+
+onMutate: async ({ id, data }) => {
+  await qc.cancelQueries({ queryKey: qk.user(id) });
+  const prev = qc.getQueryData(qk.user(id));
+  qc.setQueryData(qk.user(id), (old: any) => ({ ...old, ...data }));
+  return { prev };
+},
+onError: (_e, { id }, ctx) => {
+  if (ctx?.prev) qc.setQueryData(qk.user(id), ctx.prev);
+},
+
+5) Kill ad-hoc fetches and duplicated caches
+
+Search the repo for fetch(, axios., useEffect(async and replace with the hooks above.
+
+Remove any “local copies” of server data living in component state that don’t need to be there.
+
+For charts and counters, introduce small selector helpers that compute from query data, not from stale props.
+
+6) Make dashboards derive from queries, not manual props
+
+Example dashboard tile:
+
+function UsersCountTile() {
+  const { data, isLoading } = useUsers();
+  if (isLoading) return <TileSkeleton />;
+  return <Tile title="Users">{data.length}</Tile>;
+}
+
+
+Graph example:
+
+function RfisByStatusChart({ projectId }) {
+  const { data } = useQuery({
+    queryKey: qk.graph('rfisByStatus', { projectId }),
+    queryFn: () => get(`/api/graphs/rfisByStatus?projectId=${projectId}`)
+  });
+  // render chart from `data`
+}
+
+7) Route changes shouldn’t freeze data
+
+Set query defaults (already done) to refetch on mount/focus.
+Anywhere you used keepPreviousData, confirm it’s intentional. Avoid over-long staleTime on dashboard data.
+
+8) Optional: real-time nudge (SSE/WebSocket)
+
+If the backend emits change events, listen and invalidate:
+
+// src/live/invalidateOnEvent.ts
+import { QueryClient } from '@tanstack/react-query';
+export function wireLive(qc: QueryClient) {
+  const es = new EventSource('/events');
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    switch (msg.topic) {
+      case 'users.changed':
+        qc.invalidateQueries({ queryKey: qk.users() });
+        qc.invalidateQueries({ queryKey: qk.metrics() });
+        break;
+      case 'rfis.changed':
+        qc.invalidateQueries({ queryKey: qk.rfis(msg.projectId) });
+        qc.invalidateQueries({ queryKey: qk.metrics() });
+        qc.invalidateQueries({ queryKey: qk.graph('rfisByStatus', { projectId: msg.projectId }) });
+        break;
+    }
+  };
+}
+
+
+Call wireLive(queryClient) right after creating the QueryClient.
+
+This is optional—query invalidation on mutations already fixes your intra-app issue. Live events help when another user/session edits data.
+
+9) Acceptance criteria
+
+Editing an item in a form updates:
+
+The item’s detail view
+
+Any list/table containing it
+
+All dashboards/metrics/graphs that aggregate it
+
+Navigating back or switching tabs shows updated values without reload.
+
+No component depends on stale, independent copies of server data.
+
+Mutations invalidate the correct sets of keys; React Query Devtools shows refetches.
+
+Optional: receiving a live event invalidates affected keys.
+
+10) Quick audit checklist (do now)
+
+ Replace all manual fetches with useQuery hooks.
+
+ All mutations call invalidateQueries for item, list, and aggregates.
+
+ Dashboards and charts read from queries (or selectors of those queries), not from props that were set earlier.
+
+ refetchOnWindowFocus enabled; staleTime set appropriately.
+
+ (Optional) Live events call invalidateQueries.

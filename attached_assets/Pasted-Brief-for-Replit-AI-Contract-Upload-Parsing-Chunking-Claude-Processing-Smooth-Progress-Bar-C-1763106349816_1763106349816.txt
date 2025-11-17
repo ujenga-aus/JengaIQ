@@ -1,0 +1,485 @@
+Brief for Replit AI – Contract Upload, Parsing, Chunking, Claude Processing + Smooth Progress Bar
+
+Context
+
+Backend: Node.js + TypeScript
+
+Express
+
+Passport Local
+
+Drizzle ORM
+
+PostgreSQL
+
+Frontend: React 18 + TypeScript
+
+Vite
+
+Wouter
+
+Tailwind CSS
+
+shadcn/ui
+
+TanStack Query
+
+React Hook Form + Zod
+
+Source documents: PDF contracts, typically ~300 pages, construction contracts with:
+
+Cover + prelims
+
+Table of Contents
+
+Definitions
+
+General Conditions (may span many pages)
+
+Special Conditions
+
+Annexures / Schedules
+
+High-level goal
+
+Build an end-to-end feature that:
+
+Lets a user upload a large PDF contract.
+
+Backend extracts and normalises the text, preserving:
+
+page boundaries
+
+clause numbering
+
+headings
+
+Automatically segments the contract into logical parts and chunks:
+
+TOC (Table of Contents) – one logical part
+
+Definitions – one logical part
+
+General Conditions – one logical part, potentially multiple chunks
+
+Special Conditions – one logical part, potentially multiple chunks
+
+Annexures / Schedules – separate parts as needed
+
+For each chunk, sends text to Claude via API to:
+
+summarise clauses
+
+extract defined terms
+
+identify cross-references
+
+identify risks
+
+Stores everything in PostgreSQL via Drizzle:
+
+Contract record
+
+Logical parts
+
+Chunks
+
+Claude outputs (JSON)
+
+Provides real-time progress updates to the frontend so that a progress bar:
+
+moves smoothly (“glides”) rather than jumping in big steps
+
+shows which phase is currently running (e.g. “Extracting PDF”, “Chunking”, “Summarising (3/8)”, etc.)
+
+Data Model Requirements (Drizzle + Postgres)
+
+Define at least the following tables and TypeScript types:
+
+contracts
+
+id (UUID, PK)
+
+name (string)
+
+original_file_path (string or nullable if using cloud storage)
+
+page_count (int)
+
+status ('uploaded' | 'processing' | 'completed' | 'failed')
+
+created_at, updated_at (timestamps)
+
+contract_parts
+
+id (UUID, PK)
+
+contract_id (FK → contracts.id)
+
+type (enum): 'TOC' | 'DEFINITIONS' | 'GENERAL_CONDITIONS' | 'SPECIAL_CONDITIONS' | 'ANNEXURES' | 'OTHER'
+
+label (string): e.g. "Part A – General Conditions"
+
+order_index (int): TOC = 1, Definitions = 2, etc.
+
+contract_chunks
+
+id (UUID, PK)
+
+contract_id (FK → contracts.id)
+
+part_id (FK → contract_parts.id)
+
+chunk_index (int, order within that part)
+
+start_page (int)
+
+end_page (int)
+
+raw_text (text) – cleaned text for this chunk
+
+summary_json (jsonb, nullable) – Claude’s structured summary
+
+created_at, updated_at
+
+(Optional for later) embeddings, definitions, cross_refs tables – but for this first pass, it’s enough that summary_json from Claude includes:
+
+chunk_id
+
+page_range
+
+summaries (array of clauses: { clause_number, heading, summary })
+
+definitions
+
+cross_refs
+
+risks
+
+Backend Flow & API Endpoints
+1. File Upload Endpoint
+
+Endpoint: POST /api/contracts/upload
+Purpose: Accept a PDF file, create a contracts row, and kick off an async processing job.
+
+Implementation details:
+
+Use multer or similar for file upload.
+
+Save the PDF to disk (or cloud; for now local disk is fine).
+
+Create a contracts entry with:
+
+status = 'uploaded'
+
+name = filename
+
+original_file_path = path on disk
+
+Return JSON:
+
+{
+  "contractId": "<uuid>",
+  "status": "uploaded"
+}
+
+
+Immediately after upload, trigger an async “processing pipeline” for this contract (can be a simple in-memory queue or job runner for now).
+
+2. Contract Processing Pipeline (Async Job)
+
+Create a function like processContract(contractId: string) that:
+
+Initialise progress tracking
+
+Create an entry in a contract_processing_status in-memory map or a DB table with:
+
+totalWorkUnits (int)
+
+completedWorkUnits (int)
+
+phase (string, e.g. "extracting_pdf", "chunking", "summarising")
+
+message (for UI)
+
+We want fine-grained progress (see “Progress Bar Behaviour” section below for how to compute total units).
+
+Step A – PDF Extraction
+
+Use a Node PDF library such as pdf-parse or pdfjs-dist:
+
+For each page, extract text and prepend a marker: === PAGE X ===.
+
+Combine into a single raw string.
+
+Store page_count on the contract record.
+
+Update progress incrementally per page processed.
+
+Step B – Text Normalisation
+
+Implement a pure TS function that:
+
+Removes \r characters.
+
+Joins lines that belong to the same paragraph.
+
+Preserves clause numbers by forcing new paragraphs when a line starts with a clause pattern like ^\d+(\.\d+)*\s.
+
+Preserves === PAGE X === markers.
+
+After normalisation, update the contract’s status to processing.
+
+Step C – Logical Part Detection
+
+For this first version, keep it simple:
+
+Assume the contract has:
+
+TOC at the beginning (e.g. pages 1–N where “Contents” or “Table of Contents” appears).
+
+Definitions (a section heading that contains “Definitions” or “Interpretation and Definitions”).
+
+General Conditions (following after definitions).
+
+Special Conditions (if heading contains “Special Conditions”).
+
+Use regex/string search on the normalised text to identify approximate ranges.
+
+Create contract_parts entries for:
+
+TOC
+
+Definitions
+
+General Conditions
+
+Special Conditions (if detected)
+
+Other / Annexures (if needed)
+
+Update a small progress amount for part detection (one or two work units).
+
+Step D – Chunking into contract_chunks
+
+For each logical part (especially GENERAL_CONDITIONS and SPECIAL_CONDITIONS):
+
+Split text into sequential chunks based on:
+
+A max character length per chunk (e.g. 20,000–25,000 chars), and
+
+Clause boundaries (avoid splitting in the middle of a clause if possible).
+
+Assign:
+
+chunk_index (starting at 1 within each part)
+
+approximate start_page and end_page based on === PAGE X === markers in the chunk.
+
+Insert rows into contract_chunks.
+
+Track a work unit per chunk created.
+
+Step E – Claude Summarisation per Chunk
+
+For each contract_chunks row:
+
+Build a prompt along the lines of:
+
+You are a construction contract lawyer.
+You are given an extract (chunk) of a contract.
+Tasks:
+
+Summarise each clause, preserving clause numbers.
+
+Extract all defined terms and their definitions.
+
+Identify cross-references to other clauses.
+
+Identify key risks.
+Output JSON with: chunk_id, page_range, summaries, definitions, cross_refs, risks.
+Do not invent clauses; only use the provided text.
+
+Call Claude’s API (you do not need to implement this in full if credentials are missing — but scaffold the code and injection points).
+
+Parse the JSON and store it in contract_chunks.summary_json.
+
+After each chunk’s summary is saved, increment progress.
+
+Step F – Mark contract as completed
+
+Once all chunks are summarised:
+
+Update contract status = 'completed'.
+
+Optionally create a “contract map” later from all summary_json (this can be a separate step).
+
+Progress Bar Behaviour (Smooth “Gliding” Progress)
+
+We want a real-time percentage that moves smoothly, not in big jumps.
+
+Design:
+
+Define work units dynamically based on contract size
+
+Let:
+
+P = total page count
+
+C = total chunk count (across all parts)
+
+Define a total work unit count such as:
+
+totalWorkUnits =
+  P                (PDF extraction: 1 unit per page) +
+  5                (normalisation + part detection overhead) +
+  C                (chunk creation: 1 per chunk) +
+  (C * 5)          (Claude summarisation: 5 sub-steps per chunk)
+
+
+The C * 5 is a trick: for each chunk, treat the summarisation as 5 “virtual milestones”:
+
+request prepared
+
+request sent
+
+response received
+
+JSON parsed/validated
+
+summary stored
+
+This allows the backend to nudge the progress forward in smaller increments while the Claude API call is in flight (e.g. increase by 1 when request is sent, bump another when response received, etc.).
+
+Backend progress state
+
+Maintain an in-memory or DB record:
+
+type ContractProcessingStatus = {
+  contractId: string;
+  totalWorkUnits: number;
+  completedWorkUnits: number;
+  phase: 'uploading' | 'extracting_pdf' | 'normalising_text' | 'detecting_parts' | 'chunking' | 'summarising' | 'completed' | 'failed';
+  message: string; // e.g. "Summarising chunk 3 of 8"
+};
+
+
+Expose an endpoint:
+
+GET /api/contracts/:id/status
+
+Returns the above plus:
+
+percent = Math.min(100, Math.round((completedWorkUnits / totalWorkUnits) * 100))
+
+Frontend behaviour (smooth movement)
+
+Use TanStack Query to poll /api/contracts/:id/status every 1–2 seconds while status is not completed/failed.
+
+Use shadcn/ui Progress component (or a simple Tailwind progress bar).
+
+Add CSS transitions so that when the percent prop changes, the bar animates between values instead of jumping.
+
+Example behaviour:
+
+As each page is processed, completedWorkUnits increases by 1.
+
+As each chunk is created, completedWorkUnits increases by 1.
+
+For each Claude summarisation step per chunk, increment by up to 5 units in phases so the bar keeps moving even while waiting on the network.
+
+Frontend Requirements
+
+Pages / components (React + TS):
+
+Contract Upload Page
+
+Simple form with:
+
+File input (PDF)
+
+“Upload & Process” button
+
+On submit:
+
+Call POST /api/contracts/upload with the file (multipart/form-data).
+
+Navigate to /contracts/:id/progress.
+
+Contract Progress Page
+
+Route: /contracts/:id/progress
+
+Use TanStack Query to:
+
+call GET /api/contracts/:id/status on an interval (e.g. every 1–2s).
+
+Display:
+
+Contract name
+
+Current phase label
+
+Human-readable message
+
+Progress bar backed by the percentage from the API.
+
+When status becomes completed, show a link/button to “View contract summary” (placeholder route for now).
+
+UI Stack
+
+Use shadcn/ui components where appropriate for:
+
+Card
+
+Button
+
+Progress
+
+Tailwind for layout.
+
+Implementation Notes & Acceptance Criteria
+
+Implementation notes:
+
+All backend code in TypeScript.
+
+Use proper typing for DB models and API responses.
+
+Keep Claude integration code in a separate service module, e.g. services/claudeService.ts, so it’s easy to stub/mock.
+
+Use environment variables for any API keys (do not hardcode).
+
+Acceptance criteria:
+
+I can upload a PDF contract via the UI, and I get back to a progress page.
+
+The backend:
+
+creates a contracts row
+
+extracts text per page
+
+normalises text
+
+detects basic logical parts (TOC, Definitions, General Conditions, Special Conditions)
+
+creates chunks and stores them
+
+(optionally) calls Claude for each chunk and stores a JSON summary in contract_chunks.summary_json
+
+A progress bar on the frontend:
+
+starts at 0%
+
+moves smoothly (doesn’t sit still for long then suddenly jump)
+
+reaches 100% when processing is complete
+
+I can hit GET /api/contracts/:id/status at any time and see:
+
+the current phase
+
+completed vs total work units
+
+percentage

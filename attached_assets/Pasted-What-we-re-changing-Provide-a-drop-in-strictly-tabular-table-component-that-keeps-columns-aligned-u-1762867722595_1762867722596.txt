@@ -1,0 +1,179 @@
+What we’re changing
+Provide a drop-in, strictly tabular table component that keeps columns aligned using native <table> + table-fixed, colgroup widths, right-aligned numeric cells, and tabular-nums so currency and quantities line up.
+
+Patch
+
+// web/src/components/BOQTable.tsx
+import React from "react";
+
+type BOQRow = {
+id: string;
+level: number;
+itemNo: string;
+description: string;
+unit?: string;
+quantity?: number | null;
+rate?: number | null;
+amount?: number | null;
+notes?: string | null;
+};
+
+type Props = {
+rows: BOQRow[];
+};
+
+function fmtNum(n?: number | null, opts: Intl.NumberFormatOptions = {}) {
+if (n === null || n === undefined) return "";
+return new Intl.NumberFormat(undefined, {
+maximumFractionDigits: 3,
+...opts,
+}).format(n);
+}
+function fmtMoney(n?: number | null) {
+if (n === null || n === undefined) return "";
+// Change currency code if needed
+return new Intl.NumberFormat(undefined, {
+style: "currency",
+currency: "USD",
+maximumFractionDigits: 2,
+}).format(n);
+}
+
+export default function BOQTable({ rows }: Props) {
+return (
+<div className="relative">
+{/* horizontal scroll container to avoid squish /}
+<div className="overflow-x-auto rounded-2xl border border-border bg-card">
+<table className="w-[1100px] table-fixed text-sm">
+{/ Set explicit column widths so every row uses the same grid /}
+<colgroup>
+<col className="w-16" /> {/ Level /}
+<col className="w-28" /> {/ Item # /}
+<col className="w-[420px]" /> {/ Description /}
+<col className="w-24" /> {/ Unit /}
+<col className="w-28" /> {/ Quantity /}
+<col className="w-32" /> {/ Rate /}
+<col className="w-36" /> {/ Amount /}
+<col className="w-[240px]" /> {/ Notes */}
+</colgroup>
+
+      <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur supports-[backdrop-filter]:bg-muted/30">
+        <tr className="text-left">
+          <th className="px-3 py-2 font-medium">Level</th>
+          <th className="px-3 py-2 font-medium">Item #</th>
+          <th className="px-3 py-2 font-medium">Description</th>
+          <th className="px-3 py-2 font-medium">Unit</th>
+          <th className="px-3 py-2 font-medium text-right tabular-nums">Quantity</th>
+          <th className="px-3 py-2 font-medium text-right tabular-nums">Rate</th>
+          <th className="px-3 py-2 font-medium text-right tabular-nums">Amount</th>
+          <th className="px-3 py-2 font-medium">Notes</th>
+        </tr>
+      </thead>
+
+      <tbody className="[&_td]:border-t [&_td]:border-border">
+        {rows.map((r) => (
+          <tr key={r.id} className="odd:bg-muted/20">
+            <td className="px-3 py-2">{r.level}</td>
+            <td className="px-3 py-2">{r.itemNo}</td>
+            <td className="px-3 py-2">
+              <div className="truncate" title={r.description}>
+                {r.description}
+              </div>
+            </td>
+            <td className="px-3 py-2 whitespace-nowrap">{r.unit ?? ""}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.quantity)}</td>
+            <td className="px-3 py-2 text-right tabular-nums">{fmtMoney(r.rate ?? null)}</td>
+            <td className="px-3 py-2 text-right font-medium tabular-nums">
+              {fmtMoney(r.amount ?? null)}
+            </td>
+            <td className="px-3 py-2">
+              <div className="truncate" title={r.notes ?? ""}>
+                {r.notes ?? ""}
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+);
+}
+
+// web/src/routes/demo-boq.tsx
+import React from "react";
+import { Link } from "wouter";
+import BOQTable from "@/components/BOQTable";
+
+const demoRows = [
+{
+id: "1",
+level: 1,
+itemNo: "20001.01",
+description: "Provision for traffic",
+unit: "lump sum",
+quantity: 1,
+rate: 35000,
+amount: 35000,
+notes: "",
+},
+{
+id: "2",
+level: 1,
+itemNo: "20003.01",
+description:
+"Construction AND removal of side track with very long description that will be truncated in the cell",
+unit: "m²",
+quantity: 45,
+rate: 0,
+amount: 0,
+notes: "Check scope",
+},
+] as const;
+
+export default function DemoBOQ() {
+return (
+<div className="p-6">
+<div className="mb-4 flex items-center justify-between">
+<h1 className="text-xl font-semibold">BOQ Table (Demo)</h1>
+<Link href="/" className="text-primary underline">
+Back
+</Link>
+</div>
+<BOQTable rows={demoRows as any} />
+<p className="mt-3 text-muted-foreground">
+Columns are fixed via <code>colgroup</code>, numeric cells are{" "}
+<code>tabular-nums</code> + <code>text-right</code>.
+</p>
+</div>
+);
+}
+
+// web/src/main.tsx (ensure route exists; keep your router style)
+import { Route } from "wouter";
+import DemoBOQ from "./routes/demo-boq";
+// ...
+// add somewhere in your routes:
+<Route path="/demo/boq" component={DemoBOQ} />
+
+Commands
+
+no new deps needed; just run dev
+
+npm run web
+
+Why this works
+
+Uses native <table> with table-fixed and a colgroup to force identical column widths across all rows—no flex/grid drift.
+
+Right aligns numbers (text-right) and enables tabular-nums so digits take uniform width; currencies line up vertically.
+
+overflow-x-auto + explicit table width avoids content squeezing while keeping layout stable.
+
+truncate prevents long text from pushing widths; tooltips preserve full content.
+
+Sticky header keeps labels aligned during scroll.
+
+Formatting helpers use Intl.NumberFormat for locale-correct numbers and currency.

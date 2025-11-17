@@ -1,0 +1,373 @@
+What we’re changing
+Make hover-tooltips work across the entire PDF, reliably tag both defined terms and clause references, and render nested clause text with correct hanging indents. We add a small client util to observe every PDF text layer, tag matches (including multi-word terms split across spans), and a tooltip that formats (a) → (i) → (1) lists.
+
+Patch
+
+// web/src/components/PdfHoverHints.tsx
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+
+/** ---- Types coming from your API ---- */
+type ClauseMeta = { number: string; heading: string; pageIndex?: number | null };
+type DefinitionMeta = { term: string; definition: string; pageIndex?: number | null };
+
+type Props = {
+revisionId: string;
+/** The DOM node that contains react-pdf pages (you pass ref.current from your viewer) */
+container: HTMLElement | null;
+};
+
+type TooltipState = { visible: boolean; x: number; y: number; html: string };
+
+/** Utility: normalize for matching (lowercase + collapse whitespace) */
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+/** Parse definition/clauses text into HTML with nested lists (a)/(i)/(1) /
+function renderNestedListHTML(raw: string) {
+// Split by lines or semicolons keeping markers like "(a)", "(i)", "(1)"
+const lines = raw
+.split(/\n|(?:;\s)(?=()/g)
+.map((t) => t.trim())
+.filter(Boolean);
+
+const parts: string[] = [];
+const open: number[] = []; // stack of depths
+
+const depthOf = (t: string) => {
+if (/^
+[
+𝑎
+−
+𝑧
+]
+[a−z]/.test(t)) return 0; // (a)
+if (/^
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+/i.test(t)) return 1; // (i)
+if (/^
+\d
++
+\d+/.test(t)) return 2; // (1)
+return -1;
+};
+
+const openList = (d: number) => {
+parts.push(<ol class="tlist" data-depth="${d}">);
+open.push(d);
+};
+const closeList = () => {
+parts.push(</ol>);
+open.pop();
+};
+
+let currentDepth = -1;
+for (const line of lines) {
+const d = depthOf(line);
+if (d === -1) {
+// plain paragraph
+parts.push(<p class="tpara">${line}</p>);
+continue;
+}
+const text = line.replace(/^
+(
+?
+:
+[
+𝑎
+−
+𝑧
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+∣
+\d
++
+)
+(?:[a−zivxlcdm]+∣\d+)\s*/i, "");
+if (d > currentDepth) {
+for (let i = currentDepth + 1; i <= d; i++) openList(i);
+} else if (d < currentDepth) {
+for (let i = currentDepth; i > d; i--) closeList();
+}
+currentDepth = d;
+parts.push(<li>${text}</li>);
+}
+while (open.length) closeList();
+
+return parts.join("");
+}
+
+/** Build regex for clause references like "8.3", "19.1.2" (word bounded) */
+const CLAUSE_REF_RE = /\b\d+(?:.\d+)+\b/;
+
+/** Marking attributes */
+const ATTR = {
+defToken: "data-def-token", // carries normalized term
+clauseRef: "data-clause-ref", // carries the matched ref text
+};
+
+export default function PdfHoverHints({ revisionId, container }: Props) {
+const [tip, setTip] = useState<TooltipState | null>(null);
+
+// 1) Fetch metadata once
+const { data: metadata } = useQuery({
+queryKey: ["/api/contract-revisions", revisionId, "metadata"],
+queryFn: async () => {
+const res = await fetch(/api/contract-revisions/${revisionId}/metadata, {
+credentials: "include",
+});
+if (!res.ok) throw new Error(await res.text());
+return (await res.json()) as { clauses: ClauseMeta[]; definitions: DefinitionMeta[] };
+},
+staleTime: 5 * 60 * 1000,
+});
+
+// 2) Fast lookup maps
+const defMap = useMemo(() => {
+const m = new Map<string, DefinitionMeta>();
+metadata?.definitions.forEach((d) => m.set(norm(d.term), d));
+return m;
+}, [metadata]);
+
+const clauseMap = useMemo(() => {
+const m = new Map<string, ClauseMeta>();
+metadata?.clauses.forEach((c) => m.set(c.number, c));
+return m;
+}, [metadata]);
+
+// 3) Observe ALL react-pdf text layers and tag matches
+const observerRef = useRef<MutationObserver | null>(null);
+
+useEffect(() => {
+if (!container || !metadata) return;
+
+// Tag an individual text layer (a page)
+const tagLayer = (layer: Element) => {
+  // Collect spans (react-pdf renders each chunk as <span>)
+  const spans = Array.from(layer.querySelectorAll("span"));
+
+  // ---- Tag clause references in-place using regex on each span ----
+  for (const s of spans) {
+    const text = s.textContent ?? "";
+    if (CLAUSE_REF_RE.test(text)) {
+      // Exact match for a pure ref (common) → tag the span
+      if (text.match(new RegExp(`^${CLAUSE_REF_RE.source}$`))) {
+        if (clauseMap.has(text)) s.setAttribute(ATTR.clauseRef, text);
+      } else {
+        // Mixed content: split into nodes to isolate the ref(s)
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        for (const m of text.matchAll(CLAUSE_REF_RE)) {
+          const [ref] = m;
+          const idx = m.index ?? 0;
+          if (idx > last) frag.append(text.slice(last, idx));
+          const refNode = document.createElement("span");
+          refNode.textContent = ref;
+          if (clauseMap.has(ref)) refNode.setAttribute(ATTR.clauseRef, ref);
+          frag.append(refNode);
+          last = idx + ref.length;
+        }
+        if (last < text.length) frag.append(text.slice(last));
+        s.replaceWith(frag);
+      }
+    }
+  }
+
+  // ---- Tag definitions, including multi-word terms split across spans ----
+  // Build a sliding window over spans to match multi-word terms
+  const tokens = spans.map((s) => ({ el: s, text: (s.textContent ?? "").trim() })).filter((t) => t.text.length);
+  // For up to 5-word terms (tweakable)
+  const MAX_WORDS = 5;
+
+  for (let i = 0; i < tokens.length; i++) {
+    let combined = tokens[i].text;
+    let wordCount = 1;
+    while (wordCount <= MAX_WORDS) {
+      const key = norm(combined);
+      const def = defMap.get(key);
+      if (def) {
+        // Wrap the range into a single <span> carrying the token
+        const wrapper = document.createElement("span");
+        wrapper.setAttribute(ATTR.defToken, key);
+        wrapper.textContent = combined;
+        // Replace the nodes with wrapper
+        tokens[i].el.replaceWith(wrapper);
+        // Remove any following tokens that were part of the match
+        for (let j = 1; j < wordCount; j++) tokens[i + j].el.remove();
+        // Skip ahead
+        i += wordCount - 1;
+        break;
+      }
+      // extend the window by the next token
+      const next = tokens[i + wordCount];
+      if (!next) break;
+      combined += " " + next.text;
+      wordCount++;
+    }
+  }
+};
+
+// Tag already-rendered pages
+container.querySelectorAll(".react-pdf__Page__textContent").forEach(tagLayer);
+
+// Observe new pages as they mount (react-pdf virtualizes)
+observerRef.current?.disconnect();
+observerRef.current = new MutationObserver((mut) => {
+  for (const m of mut) {
+    m.addedNodes.forEach((n) => {
+      const el = n as Element;
+      if (el?.nodeType === 1) {
+        if (el.classList?.contains("react-pdf__Page__textContent")) tagLayer(el);
+        el.querySelectorAll?.(".react-pdf__Page__textContent").forEach(tagLayer);
+      }
+    });
+  }
+});
+observerRef.current.observe(container, { childList: true, subtree: true });
+
+return () => observerRef.current?.disconnect();
+
+
+}, [container, metadata, defMap, clauseMap]);
+
+// 4) Event delegation for hover
+useEffect(() => {
+if (!container) return;
+const onMove = (e: MouseEvent) => {
+const t = e.target as HTMLElement;
+if (!t) return;
+
+  const rect = t.getBoundingClientRect();
+  const show = (html: string) =>
+    setTip({ visible: true, x: rect.left + window.scrollX, y: rect.bottom + window.scrollY + 6, html });
+
+  if (t.hasAttribute(ATTR.clauseRef)) {
+    const ref = t.getAttribute(ATTR.clauseRef)!;
+    const c = clauseMap.get(ref);
+    if (c) show(`<div class="tt-title">Clause ${c.number}</div><div class="tt-body">${c.heading}</div>`);
+    return;
+  }
+  if (t.hasAttribute(ATTR.defToken)) {
+    const token = t.getAttribute(ATTR.defToken)!;
+    const d = defMap.get(token);
+    if (d) {
+      const html = renderNestedListHTML(`${d.term}: ${d.definition}`);
+      show(html);
+    }
+    return;
+  }
+  setTip(null);
+};
+const onLeave = (e: MouseEvent) => {
+  const t = e.target as HTMLElement;
+  if (t?.hasAttribute(ATTR.clauseRef) || t?.hasAttribute(ATTR.defToken)) setTip(null);
+};
+container.addEventListener("mousemove", onMove);
+container.addEventListener("mouseleave", onLeave);
+return () => {
+  container.removeEventListener("mousemove", onMove);
+  container.removeEventListener("mouseleave", onLeave);
+};
+
+
+}, [container, clauseMap, defMap]);
+
+if (!tip?.visible) return null;
+
+return (
+<div
+className="contract-tooltip"
+style={{ left: tip.x, top: tip.y, position: "absolute" }}
+dangerouslySetInnerHTML={{ __html: tip.html }}
+/>
+);
+}
+
+// web/src/styles/contract-tooltips.css
+.contract-tooltip {
+max-width: 520px;
+background: white;
+border: 1px solid rgb(229 231 235);
+box-shadow: 0 8px 24px rgba(0,0,0,.12);
+border-radius: 12px;
+padding: 10px 12px;
+z-index: 50;
+font-size: 0.9rem;
+line-height: 1.45;
+}
+.contract-tooltip .tt-title {
+font-weight: 600;
+margin-bottom: .25rem;
+}
+.contract-tooltip .tt-body { color: rgb(55 65 81); }
+
+/* Nested list formatting inside tooltip (grid hanging indents) */
+.contract-tooltip .tpara { margin: 0 0 .5rem 0; }
+.contract-tooltip ol.tlist { list-style: none; margin: .25rem 0; padding-left: 0; }
+.contract-tooltip ol.tlist[data-depth="0"] > li,
+.contract-tooltip ol.tlist[data-depth="1"] > li,
+.contract-tooltip ol.tlist[data-depth="2"] > li {
+display: grid;
+align-items: start;
+column-gap: .5ch;
+margin: .2rem 0;
+}
+.contract-tooltip ol.tlist[data-depth="0"] { counter-reset: a; margin-left: 0; }
+.contract-tooltip ol.tlist[data-depth="0"] > li { counter-increment: a; grid-template-columns: 2.6ch 1fr; }
+.contract-tooltip ol.tlist[data-depth="0"] > li::before { content: "(" counter(a, lower-alpha) ")"; text-align: right; }
+
+.contract-tooltip ol.tlist[data-depth="1"] { counter-reset: i; margin-left: 1.25rem; }
+.contract-tooltip ol.tlist[data-depth="1"] > li { counter-increment: i; grid-template-columns: 3.2ch 1fr; }
+.contract-tooltip ol.tlist[data-depth="1"] > li::before { content: "(" counter(i, lower-roman) ")"; text-align: right; }
+
+.contract-tooltip ol.tlist[data-depth="2"] { counter-reset: d; margin-left: 1.75rem; }
+.contract-tooltip ol.tlist[data-depth="2"] > li { counter-increment: d; grid-template-columns: 2.8ch 1fr; }
+.contract-tooltip ol.tlist[data-depth="2"] > li::before { content: "(" counter(d, decimal) ")"; text-align: right; }
+
+// web/src/pages/YourPdfViewer.tsx
+// …inside your PDF viewer component…
+/*
+const containerRef = useRef<HTMLDivElement>(null);
+
+return (
+<div ref={containerRef} className="relative">
+<Document file={file}><Page … /></Document>
+<PdfHoverHints revisionId={revisionId} container={containerRef.current} />
+</div>
+)
+*/
+import "../styles/contract-tooltips.css";
+
+Commands
+
+No new packages needed
+Ensure the CSS is imported once (e.g., in YourPdfViewer.tsx or a global index.css)
+
+npm run web
+
+Why this works
+
+Covers every page: a MutationObserver watches the PDF container and tags text layers as they mount (react-pdf virtualizes pages).
+
+Tags clause refs reliably: regex isolates "8.3"/"19.1.2" even when the PDF puts other characters in the same span.
+
+Matches multi-word definitions across span boundaries using a sliding window; we wrap the match into a single span with a data attribute.
+
+Fast hover: event delegation (one listener) and prebuilt Maps; no per-span listeners.
+
+Readable tooltips: grid-based hanging indents render (a) → (i) → (1) correctly when lines wrap.

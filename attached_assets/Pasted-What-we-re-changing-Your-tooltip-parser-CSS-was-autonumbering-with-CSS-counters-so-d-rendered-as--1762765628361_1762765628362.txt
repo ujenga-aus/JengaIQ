@@ -1,0 +1,213 @@
+What we’re changing
+Your tooltip parser/CSS was autonumbering with CSS counters, so (d) rendered as (a). We’ll emit the actual marker text "(a)/(d)/(i)" into a dedicated grid column and stop using counters. The tokenizer also keeps interstitial text like “for any:” as plain paragraphs.
+
+Patch
+
+// web/src/components/PdfHoverHints.tsx
+// — keep the rest of the file as in my last message — only the renderer changed.
+@@
+-/** Parse "Term: text (a) ...; (i) ...; (1) ..." into nested lists with hanging indents.
+
+Robust to dense streams like "(a) foo; (i) bar; (ii) baz; (b) ..."
+
+/
+-function renderNestedListHTML(raw: string) {
++/* Parse "Term: ... (a) ...; (i) ...; (1) ..." into nested lists.
+
+IMPORTANT: we preserve the exact marker text (e.g., "(d)") instead of auto-numbering.
+
+*/
++function renderNestedListHTML(raw: string) {
+const parts: string[] = [];
+const open: number[] = []; // stack of depths
+
+const pushOpen = (d: number) => { parts.push(<ol class="tlist" data-depth="${d}">); open.push(d); };
+
+const pushOpen = (d: number) => { parts.push(<ol class="tlist" data-depth="${d}">); open.push(d); };
+const pushCloseTo = (d: number) => { while (open.length && open[open.length - 1] > d) { parts.push(</ol>); open.pop(); } };
+const finish = () => { while (open.length) { parts.push(</ol>); open.pop(); } };
+
+// Separate leading "Term: " if present
+const mTerm = raw.match(/^\s*([^:]+?):\s*(.)$/s);
+if (mTerm) {
+const [, term, rest] = mTerm;
+parts.push(<p class="tpara"><strong>${escapeHtml(term)}:</strong>);
+if (/^\s(/.test(rest)) {
+parts[parts.length - 1] += </p>;
+
+ raw = rest;
+
+ raw = rest;
+
+
+} else {
+parts[parts.length - 1] += ${escapeHtml(rest)}</p>;
+return parts.join(""); // no markers; simple definition
+}
+}
+
+// Tokenize on markers, keeping them: "(a)" | "(i…)" | "(1…)"
+const TOK = /(
+[
+𝑎
+−
+𝑧
+]
+[a−z]|
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+|
+\d
++
+\d+)/gi;
+const chunks = raw.split(TOK);
+const depthOf = (marker: string) => {
+if (/^
+[
+𝑎
+−
+𝑧
+]
+[a−z]$/i.test(marker)) return 0;
+if (/^
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+$/i.test(marker)) return 1;
+if (/^
+\d
++
+\d+$/.test(marker)) return 2;
+return -1;
+};
+
+// Emit any preface text (before first marker) e.g., "means ..." or "for any:"
+const preface = chunks[0]?.trim();
+if (preface) parts.push(<p class="tpara">${escapeHtml(preface)}</p>);
+
+for (let i = 1; i < chunks.length; i += 2) {
+
+const marker = chunks[i];
+
+const marker = chunks[i]; // e.g., "(d)"
+const body = (chunks[i + 1] ?? "").trim()
+.replace(/\s*;(?:\s*(and|or))?\s*$/i, "");
+const d = depthOf(marker);
+if (d < 0) continue;
+// open / close levels as needed by depth (we do not renumber)
+if (!open.length || d > open[open.length - 1]) {
+for (let k = (open.length ? open[open.length - 1] + 1 : 0); k <= d; k++) pushOpen(k);
+} else if (d < open[open.length - 1]) {
+pushCloseTo(d);
+}
+
+parts.push(<li>${escapeHtml(body)}</li>);
+
+// Preserve explicit marker text for correct letters (d…l etc.)
+
+parts.push(
+
+ `<li><span class="m">${escapeHtml(marker)}</span><div class="li-body">${escapeHtml(body)}</div></li>`
+
+
+);
+}
+finish();
+return parts.join("");
+}
+
+function escapeHtml(s: string) {
+return s
+.replace(/&/g, "&")
+.replace(/</g, "<")
+.replace(/>/g, ">");
+}
+
+// (rest of file unchanged)
+
+// web/src/styles/contract-tooltips.css
+/* replace the list section to remove counters and use explicit marker cell */
+@@
+-.contract-tooltip ol.tlist { list-style: none; margin: .25rem 0; padding-left: 0; }
+-.contract-tooltip ol.tlist[data-depth="0"] > li,
+-.contract-tooltip ol.tlist[data-depth="1"] > li,
+-.contract-tooltip ol.tlist[data-depth="2"] > li {
+
+display: grid;
+
+align-items: start;
+
+column-gap: .5ch;
+
+margin: .28rem 0; /* a little more air between sub-items */
+
+row-gap: .2rem;
+-}
+-.contract-tooltip ol.tlist[data-depth="0"] { counter-reset: a; margin-left: 0; }
+-.contract-tooltip ol.tlist[data-depth="0"] > li { counter-increment: a; grid-template-columns: 2.6ch 1fr; }
+-.contract-tooltip ol.tlist[data-depth="0"] > li::before { content: "(" counter(a, lower-alpha) ")"; text-align: right; }
+
+-.contract-tooltip ol.tlist[data-depth="1"] { counter-reset: i; margin-left: 1.25rem; }
+-.contract-tooltip ol.tlist[data-depth="1"] > li { counter-increment: i; grid-template-columns: 3.2ch 1fr; }
+-.contract-tooltip ol.tlist[data-depth="1"] > li::before { content: "(" counter(i, lower-roman) ")"; text-align: right; }
+
+-.contract-tooltip ol.tlist[data-depth="2"] { counter-reset: d; margin-left: 1.75rem; }
+-.contract-tooltip ol.tlist[data-depth="2"] > li { counter-increment: d; grid-template-columns: 2.8ch 1fr; }
+-.contract-tooltip ol.tlist[data-depth="2"] > li::before { content: "(" counter(d, decimal) ")"; text-align: right; }
+-.contract-tooltip li p { margin: 0 0 .35rem 0; }
++.contract-tooltip ol.tlist { list-style: none; margin: .25rem 0; padding-left: 0; }
++.contract-tooltip ol.tlist[data-depth="0"],
++.contract-tooltip ol.tlist[data-depth="1"],
++.contract-tooltip ol.tlist[data-depth="2"] { margin-left: 0; }
++
++.contract-tooltip ol.tlist > li {
+
+display: grid;
+
+grid-template-columns: auto 1fr; /* marker, content */
+
+column-gap: .6ch;
+
+align-items: start;
+
+margin: .28rem 0;
++}
++.contract-tooltip ol.tlist[data-depth="0"] > li .m { width: 2.8ch; text-align: right; }
++.contract-tooltip ol.tlist[data-depth="1"] { margin-left: 1.25rem; }
++.contract-tooltip ol.tlist[data-depth="1"] > li .m { width: 3.4ch; text-align: right; } /* roman wider */
++.contract-tooltip ol.tlist[data-depth="2"] { margin-left: 1.75rem; }
++.contract-tooltip ol.tlist[data-depth="2"] > li .m { width: 3ch; text-align: right; }
++.contract-tooltip ol.tlist > li .li-body { min-width: 0; }
++.contract-tooltip li p { margin: 0 0 .35rem 0; }
+.contract-tooltip li p:last-child { margin-bottom: 0; }
+
+Commands
+
+npm run web
+
+Why this works
+
+No more auto-numbering: we render the actual (d), (i) captured from text, so mid-series letters are preserved.
+
+Grid with an explicit marker column keeps perfect hanging indents even when lines wrap.
+
+The tokenizer is punctuation-tolerant and keeps interstitial phrases like “for any:” as normal paragraphs.
+
+Works for any sequence length/ordering (a…c then d…l), and any depth—lists open/close by depth, not by assumed order.
+
+Only client-side changes; your existing metadata fetching and hover tagging remain intact.

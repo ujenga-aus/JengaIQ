@@ -1,0 +1,427 @@
+🚀 Replit AI Specification — Full Contract Ingestion, Mapping, and Analysis System
+
+Stack
+
+Backend: Node.js + TypeScript, Express, Drizzle ORM, PostgreSQL
+
+Frontend: React 18 + TypeScript, Vite, Tailwind, shadcn/ui, TanStack Query, RHF + Zod
+
+AI: Claude (via API)
+
+🎯 Primary Objective
+
+Build a complete end-to-end system that:
+
+Accepts a large PDF contract (200–400 pages).
+
+Extracts and cleans text while keeping structure (page numbers, clauses, headings).
+
+Splits the contract into logical parts (TOC, Definitions, General Conditions, etc.).
+
+Chunks each part into Claude-compatible pieces.
+
+Sends each chunk to Claude to extract:
+
+clause summaries
+
+defined terms
+
+cross-references
+
+risks
+
+clause titles
+
+Builds a unified Contract Map from all summaries:
+
+Part structure
+
+Clause index
+
+Definitions index
+
+Cross-reference graph
+
+Risks catalogue
+
+Section summaries
+
+Stores everything in Postgres with Drizzle.
+
+Provides real-time progress tracking with a smooth, gliding progress bar.
+
+Provides APIs for:
+
+retrieving the Contract Map
+
+asking questions about the contract
+
+retrieving specific parts (e.g. definitions, TOC)
+
+retrieving chunks for review
+
+Prepares the system so that downstream workflows (claims analysis, letter drafting, schedule interpretation, etc.) can use the stored map.
+
+🧱 Database Schema Requirements (Drizzle)
+
+Define the following tables:
+
+1. contracts
+
+id (UUID PK)
+
+name (string)
+
+original_file_path (string)
+
+page_count (int)
+
+status ('uploaded' | 'processing' | 'completed' | 'failed')
+
+created_at
+
+updated_at
+
+2. contract_parts
+
+Each contract has logical parts:
+
+id (UUID PK)
+
+contract_id (FK)
+
+type ('TOC' | 'DEFINITIONS' | 'GENERAL_CONDITIONS' | 'SPECIAL_CONDITIONS' | 'SCHEDULE' | 'ANNEXURE' | 'OTHER')
+
+label (string)
+
+order_index (int)
+
+created_at
+
+3. contract_chunks
+
+These are the actual Claude-sized pieces:
+
+id (UUID)
+
+contract_id (FK)
+
+part_id (FK → contract_parts)
+
+chunk_index (int)
+
+start_page (int)
+
+end_page (int)
+
+raw_text (text)
+
+summary_json (jsonb) – Claude output
+
+created_at
+
+4. contract_map
+
+A single record per contract containing:
+
+contract_id (FK)
+
+map_json (jsonb) containing:
+
+part list
+
+clause index
+
+definitions index
+
+cross-reference graph
+
+risks
+
+summary per part
+
+clause titles
+
+anything else we want later
+
+created_at
+
+updated_at
+
+🧠 Backend Pipeline Requirements
+### Endpoint: POST /api/contracts/upload
+
+Accepts PDF file.
+
+Creates contract record.
+
+Saves file to disk/cloud.
+
+Returns { contractId }.
+
+Immediately triggers processContract(contractId) asynchronously.
+
+#### Async Function: processContract(contractId)
+Phase A — Initialise Progress State
+
+Store progress in memory or DB with:
+
+totalWorkUnits
+
+completedWorkUnits
+
+phase
+
+message
+
+Make progress granular:
+
+1 unit per PDF page
+
+1 unit per chunk creation
+
+5–8 units for each Claude call (request → sent → response → parsed → saved)
+
+Some overhead units for detection, normalising, mapping
+
+Phase B — PDF Extraction (No AI)
+
+Using pdf-parse or pdfjs-dist extract text per page.
+
+Add === PAGE X === markers.
+
+Increment progress per page.
+
+Save page count.
+
+Phase C — Text Normalisation (Node only)
+
+Merge broken lines.
+
+Preserve clause headings (^\d+(\.\d+)*).
+
+Clean whitespace.
+
+Keep page markers.
+
+Update progress.
+
+Phase D — Logical Part Detection
+
+Based on headings or patterns:
+
+Detect TOC
+
+Detect Definitions
+
+Detect General Conditions
+
+Detect Special Conditions
+
+Detect Schedules/Annexures
+
+Insert into contract_parts.
+
+Phase E — Chunking Strategy
+
+For each logical part:
+
+Split into chunks based on:
+
+char limit (25k–30k)
+
+clause boundaries if possible
+
+Insert into contract_chunks.
+
+Increment progress per chunk.
+
+Phase F — Claude Summarisation per Chunk
+
+For each chunk:
+
+Send cleaned chunk text.
+
+Claude must extract:
+
+{
+  chunk_id,
+  page_range,
+  summaries: [ { clause_number, clause_title, summary } ],
+  definitions: [ { term, definition } ],
+  cross_refs: [ { from_clause, to_clause } ],
+  risks: [ ... ],
+  headings: [ { clause_number, title } ]
+}
+
+
+Save into contract_chunks.summary_json.
+
+Increment progress in micro-steps:
+
+request prepared
+
+request sent
+
+response received
+
+JSON parsed
+
+saved
+
+This ensures smooth progress bar animation.
+
+Phase G — Build Contract Map (AI + Node)
+
+Once all chunks are summarised:
+
+Gather all summary_json from all chunks.
+
+Prepare a combined prompt to Claude:
+
+“Using the chunk summaries, build a full Contract Map including:
+
+List of contract parts
+
+Clause index (numbers + titles)
+
+Definitions index
+
+Cross-reference graph
+
+Risks across contract
+
+Summary of each part
+
+Any clause groupings
+
+Any inconsistencies or override patterns”
+
+Save map_json into contract_map.
+
+Increment progress.
+
+Phase H — Complete
+
+Update contract.status = 'completed'
+
+Progress to 100%
+
+📡 Progress API
+Endpoint: GET /api/contracts/:id/status
+
+Returns:
+
+{
+  "status": "processing",
+  "phase": "summarising",
+  "message": "Summarising chunk 3 of 9",
+  "completedWorkUnits": 142,
+  "totalWorkUnits": 310,
+  "percent": 46
+}
+
+
+Frontend polls this every 1–2 seconds.
+
+🎨 Frontend Requirements
+Upload Page
+
+File input
+
+Submit → redirect to progress screen
+
+Progress Page
+
+Poll /status every 1–2 seconds
+
+Smooth progress bar:
+
+Use CSS transition for width changes
+
+Progress increments gently (thanks to backend micro-units)
+
+Display:
+
+Phase
+
+Message
+
+Percent
+
+Spinner
+
+Contract Summary Page
+
+After completion, allow viewing:
+
+Full Contract Map
+
+Part list
+
+Definitions
+
+Clause index
+
+Cross-references
+
+🔍 Runtime Expectations
+PDF Parsing & Normalisation
+
+300 pages: 3–10 seconds
+
+Chunking
+
+Negligible (<1 second)
+
+Claude Chunk Summaries
+
+5–10 chunks × 3–6 seconds per Claude request
+
+Total: 20–60 seconds
+
+Contract Map Build
+
+1 Claude call: 2–5 seconds
+
+Total Expected Time:
+
+~30 seconds to 2 minutes depending on Claude speed and chunk count.
+
+🧪 Acceptance Criteria
+
+System is complete and correct when:
+
+Upload works end-to-end
+
+PDF fully parsed & cleaned
+
+Logical parts detected
+
+Chunks created
+
+Claude summarises each chunk correctly
+
+Contract Map is generated and stored
+
+Progress bar is smooth
+
+All data is queryable (TOC only, Definitions only, GC only, etc.)
+
+Only Claude-compatible chunk sizes are ever sent
+
+No unbounded memory / CPU issues
+
+✔️ Yes — this brief now covers EVERYTHING
+
+This will give Replit:
+
+the whole ingestion pipeline
+
+the mapping pipeline
+
+the storage layer
+
+the realtime progress system
+
+the future-proofing to let you build additional workflows (e.g. letter drafting, claims analysis, etc.)

@@ -1,0 +1,103 @@
+import React, { useState } from 'react';
+
+function ContractAnalyzer() {
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const analyzePDF = async (file) => {
+    setLoading(true);
+    
+    // Convert PDF to base64
+    const base64Data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result.split(",")[1];
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": process.env.REACT_APP_ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 4096,
+          system: [
+            {
+              type: "text",
+              text: "You are a construction contract analysis expert. Provide precise, accurate counts.",
+              cache_control: { type: "ephemeral" }
+            }
+          ],
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "document",
+                  source: {
+                    type: "base64",
+                    media_type: "application/pdf",
+                    data: base64Data,
+                  },
+                  cache_control: { type: "ephemeral" } // Cache the PDF!
+                },
+                {
+                  type: "text",
+                  text: `Analyze this construction contract and provide:
+
+1. Total count of defined terms (words in quotation marks or marked as definitions)
+2. Total count of clause headings that have clause numbers
+
+Provide exact counts in this format:
+DEFINITIONS: [number]
+NUMBERED HEADINGS: [number]
+
+Then list each definition and each numbered heading you counted.`
+                }
+              ]
+            }
+          ]
+        })
+      });
+
+      const data = await response.json();
+      setAnalysis(data.content[0].text);
+    } catch (error) {
+      console.error("Error:", error);
+      setAnalysis("Error analyzing contract: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <h2>Contract Analyzer</h2>
+      <input
+        type="file"
+        accept=".pdf"
+        onChange={(e) => {
+          if (e.target.files[0]) {
+            analyzePDF(e.target.files[0]);
+          }
+        }}
+      />
+      {loading && <p>Analyzing contract...</p>}
+      {analysis && (
+        <div style={{ whiteSpace: 'pre-wrap', marginTop: '20px' }}>
+          {analysis}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default ContractAnalyzer;

@@ -1,0 +1,338 @@
+App brief: Web-controlled project + RFI system with iPhone app
+1) Goal
+
+Give construction businesses a single place to:
+
+set up a company and business units (with ABNs),
+
+manage projects and phases,
+
+load a “company contract benchmark” template and AI-review client contracts against it,
+
+raise and close RFIs quickly (desktop and iPhone), with photo capture and a thread-style discussion.
+
+2) Users and access
+
+Roles
+
+Admin – full access across the company.
+
+Business Unit Manager (BUM) – full access to projects and RFIs within assigned BU(s). Can belong to multiple BUs.
+
+Employee – access limited to projects they’re on within their BU(s).
+
+Auth
+
+Email + password, MFA optional.
+
+SSO (Microsoft/Google) optional phase 2.
+
+Password reset via email.
+
+3) Hierarchy and entities
+
+Level 1: Company
+
+Fields: Company name, primary contact, address, default timezone (Australia/Brisbane), ABN (optional at company level), logo.
+
+Import employees (CSV + UI form). Map columns to: name, email, mobile, role (Admin/BUM/Employee), BU assignments.
+
+Level 2: Business Unit (BU)
+
+Fields: BU name, ABN or other unique number (required), notes.
+
+Assign users to BU(s).
+
+Level 3: Project
+
+Fields: Project ID, Project name, BU (lookup), Location (optional), Client, Project phase (Tender / Delivery / Close-out),
+
+Phase dates: tender start/end, delivery start/end, close-out start/end.
+
+Status (Active, On hold, Complete).
+
+Attach: Contract documents, drawings, specs.
+
+Section: Contract Benchmarks & AI Review
+
+Upload “Company Contract Benchmark” template (structured checklist or clause library).
+
+Upload client contract (PDF/DOCX). AI compares against benchmarks and outputs:
+
+variance map (met / partially met / not met),
+
+clause references and page hits,
+
+risk flags (time/cost/scope/payment/SOPA/BIFA),
+
+suggested drafting/negotiation notes.
+
+Save AI report versioned per upload; link findings to project.
+
+Section: RFIs
+
+Project-scoped auto-increment RFI numbering starting at 1 per project (format: <ProjectID>-RFI-0001).
+
+See fields below.
+
+4) RFI model (desktop + iPhone)
+
+RFI fields
+
+RFI Number / Reference (system generated, read-only).
+
+Date of Creation (default today).
+
+To (Recipient): people/org contacts (lookup + free text).
+
+Subject / Title (short).
+
+Detailed Description / Question (rich text).
+
+Relevant Drawing / Spec References (free text; allow multiple).
+
+Proposed Resolution / Suggestion (rich text).
+
+Impacted Areas (multi-select: Program, Cost, Safety, Quality; optional notes).
+
+Required Response Date (date).
+
+Attachments (photos, PDFs, marked-up drawings).
+
+RFI Status: Open, Awaiting Info, Responded, Closed.
+
+Response (rich text, with attachment support).
+
+Date of Response (date; auto when status = Responded/Closed).
+
+Distribution List (multi-select project team + free text emails).
+
+Threading
+
+Facebook-style comment thread under each RFI:
+
+posts, replies, @mentions, timestamps, attachment per comment.
+
+status changes visible in the thread (system notes).
+
+edit history and versioning on the Response and Description.
+
+Register
+
+Desktop web shows filterable, sortable register per project:
+
+columns: Number, Title, To, Status, Required Response Date, Days Open, Last Activity, Assignee (optional).
+
+quick filters: My RFIs, Overdue, By Status, By Phase.
+
+export CSV/XLSX/PDF bundle.
+
+SLA helpers
+
+Visual badges for due soon/overdue based on Required Response Date.
+
+Optional reminders (email/push) to Recipient and Distribution List.
+
+5) iPhone app (and mobile web)
+
+Login via the same credentials/SSO.
+
+Project and RFI list scoped by user permissions.
+
+Quick Create RFI
+
+Take photo(s) or choose from gallery.
+
+Auto-fill Date of Creation.
+
+Drop-downs for common fields (Status defaults Open, Impacted Areas, Recipient list from project contacts).
+
+Voice-to-text for Subject and Description.
+
+Optional geotag and timestamp on photos.
+
+Offline draft mode (store locally, sync when online).
+
+Push notifications:
+
+@mentions, responses posted, status changes, items due/overdue.
+
+6) Permissions summary
+
+Admin: CRUD companies, BUs, users, roles, projects, benchmarks, all RFIs and reports.
+
+BUM: CRUD projects and RFIs within assigned BU(s); view AI reports; manage team assignments for those projects.
+
+Employee: Create and comment RFIs on assigned projects; view project docs; cannot change project settings.
+
+7) Contract benchmark + AI review workflow
+
+Admin uploads or edits the Company Contract Benchmark template (structured: category > rule/benchmark > severity > suggested drafting).
+
+User uploads a client contract file to the project and triggers “Run AI Review.”
+
+System extracts text, compares to benchmarks, and produces:
+
+Coverage table: benchmark vs contract evidence (clause refs, page links).
+
+Risk classification: Compliant / Partial / Gap.
+
+Suggested drafting where gaps exist (pulled from template; allow human edit).
+
+Summary: top risks, payment/SOPA/BIFA exposure, program/EOT, security/defects, liability/insurance, termination/LDs.
+
+User can accept, edit, and publish a Review Report (PDF + web view), versioned.
+
+8) Core UI (web)
+
+Login → Company switcher (if user belongs to multiple).
+
+Admin: Company > BUs > Users > Benchmarks > Settings.
+
+Within BU: Projects list (cards/table) with quick metrics (open RFIs, due RFIs, phase status).
+
+Project: Tabs
+
+Overview (phase dates timeline, key contacts, recent activity).
+
+Contract Review (uploads, AI reports).
+
+RFIs (register + New RFI).
+
+Documents (files with tags).
+
+Settings (team, numbering, integrations).
+
+9) Data model (high level)
+
+Company(id, name, abn?, timezone, logo_url)
+
+BU(id, company_id, name, abn_or_unique)
+
+User(id, name, email, role, status)
+
+UserBU(user_id, bu_id)
+
+Project(id, bu_id, project_id_code, name, phase, tender_start/end, delivery_start/end, closeout_start/end, status)
+
+BenchmarkTemplate(id, company_id, version, items[…])
+
+ContractUpload(id, project_id, filename, version, uploaded_by, processed_status)
+
+ContractReview(id, project_id, upload_id, summary_json, pdf_url, created_by, created_at)
+
+RFI(id, project_id, number_int, number_ref, title, to, description, refs, suggestion, impacts[], required_response_date, status, response, date_created, date_response, distribution[])
+
+RFIComment(id, rfi_id, user_id, body, attachments[], created_at, parent_comment_id?)
+
+Attachment(id, owner_type, owner_id, filename, mime, url, metadata)
+
+AuditLog(id, actor_id, action, entity, entity_id, before, after, at)
+
+10) Numbering logic
+
+Per project, maintain rfi_next_number starting at 1.
+
+On create, allocate and format: <ProjectID>-RFI-<zero-padded 4 digits>.
+
+Prevent gaps by allocating on save; recycle only if creation fails.
+
+11) Notifications
+
+Email + push:
+
+On new RFI (notify To + Distribution).
+
+On comment or @mention.
+
+48h before Required Response Date; on due; on overdue daily.
+
+Digest option: daily/weekly summary by project/BU.
+
+12) Search and reporting
+
+Global search across projects, RFIs, clauses.
+
+Filters by BU, project, status, dates, recipients.
+
+Dashboards:
+
+Open vs closed RFIs by project/BU.
+
+Average response time.
+
+Overdue count and aging.
+
+Contract review risk heatmap.
+
+13) Security, compliance, audit
+
+Role-based access control, least privilege.
+
+ABN field validation for AU format where applicable.
+
+MFA optional, enforced by Admin setting.
+
+Full audit trail on key entities (who changed what, when).
+
+Data stored in AU region (if required).
+
+File virus scan on upload.
+
+Rate limiting, CSRF, TLS, salted password hashes (Argon2/bcrypt).
+
+14) Integrations (optional/phase 2)
+
+Email ingest: reply-by-email to an RFI thread.
+
+SharePoint/OneDrive/Google Drive file links.
+
+Calendar iCal feed for Required Response Dates.
+
+Webhooks for ERP/PM tools.
+
+15) Non-functional requirements
+
+Responsive web app; iPhone app SwiftUI; mobile web supported.
+
+Fast: RFI register loads <1s for 500 items, server-side pagination.
+
+Availability target 99.9%.
+
+Backups daily, retention 30–90 days.
+
+Accessibility WCAG AA.
+
+16) Admin settings
+
+Company-wide defaults: numbering format, default RFI fields, required fields, SLA thresholds, reminder cadence.
+
+Custom picklists: Impacted Areas, Phases, Recipient orgs.
+
+User import template (CSV), with validation preview.
+
+17) Acceptance criteria (high level)
+
+Users can create company, BU with ABN, and import users with roles.
+
+BUMs see only their BU projects; Admins see all; Employees see assigned projects.
+
+Project phases and dates captured; timeline displays correctly.
+
+Benchmark template upload works; AI review produces a variance report with clause refs and exportable PDF.
+
+RFI auto-numbers from 1 per project; register filters/sorts; thread works with @mentions and attachments.
+
+iPhone app can create an RFI with photo and drop-downs, and receive push notifications.
+
+Reminders fire relative to Required Response Date.
+
+Audit log records key events.
+
+18) Nice touches to include early
+
+One-click “Use last RFI values” to speed up similar RFIs.
+
+Save any RFI as a template (pre-filled fields).
+
+Quick link: “Convert RFI to Variation/EOT” (placeholder for future module).

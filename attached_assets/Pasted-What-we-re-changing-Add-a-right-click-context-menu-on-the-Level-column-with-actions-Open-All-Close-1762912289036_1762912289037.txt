@@ -1,0 +1,264 @@
+What we’re changing
+Add a right-click context menu on the Level column with actions: Open All, Close All, and levels 1–9. The menu drives a BOQ “view mode” (all / closed / max depth N) that filters the visible rows.
+
+Patch
+
+// web/src/state/boqView.tsx
+import React, { createContext, useContext, useMemo, useState } from "react";
+
+export type BoqRow = {
+  id: string;
+  level: number;        // 1..n
+  // Optional hints from API (if available)
+  hasChildren?: boolean;
+};
+
+type ViewMode =
+  | { kind: "all" }
+  | { kind: "closed" }      // only headings
+  | { kind: "depth"; max: number }; // show rows <= max
+
+type BoqViewCtx = {
+  mode: ViewMode;
+  setAll: () => void;
+  setClosed: () => void;
+  setDepth: (max: number) => void;
+  // helper to filter visible rows
+  visibleRows: (rows: BoqRow[]) => BoqRow[];
+};
+
+const Ctx = createContext<BoqViewCtx | null>(null);
+
+function inferHasChildren(rows: BoqRow[]): Record<string, boolean> {
+  const map: Record<string, boolean> = {};
+  for (let i = 0; i < rows.length; i++) {
+    const cur = rows[i];
+    const next = rows[i + 1];
+    const hasChild = next ? next.level > cur.level : false;
+    map[cur.id] = hasChild;
+  }
+  return map;
+}
+
+export const BoqViewProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [mode, setMode] = useState<ViewMode>({ kind: "all" });
+
+  const value: BoqViewCtx = useMemo(() => {
+    const setAll = () => setMode({ kind: "all" });
+    const setClosed = () => setMode({ kind: "closed" });
+    const setDepth = (max: number) => setMode({ kind: "depth", max });
+
+    const visibleRows = (rows: BoqRow[]) => {
+      switch (mode.kind) {
+        case "all":
+          return rows;
+        case "closed": {
+          // show only headings (rows that have children)
+          const inferred = inferHasChildren(rows);
+          return rows.filter((r) => r.hasChildren ?? inferred[r.id]);
+        }
+        case "depth":
+          return rows.filter((r) => r.level <= mode.max);
+      }
+    };
+
+    return { mode, setAll, setClosed, setDepth, visibleRows };
+  }, [mode]);
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+};
+
+export function useBoqView() {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error("useBoqView must be used within <BoqViewProvider>");
+  return ctx;
+}
+
+// web/src/components/ui/context-menu.tsx
+// shadcn/ui wrapper for Radix Context Menu (drop in if you don't already have it)
+"use client";
+import * as React from "react";
+import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
+import { cn } from "@/lib/cn"; // or your clsx helper
+
+export const ContextMenu = ContextMenuPrimitive.Root;
+export const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
+export const ContextMenuContent = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Portal>
+    <ContextMenuPrimitive.Content
+      ref={ref}
+      className={cn(
+        "z-50 min-w-[12rem] overflow-hidden rounded-2xl border bg-popover p-1 text-popover-foreground shadow-lg",
+        className
+      )}
+      {...props}
+    />
+  </ContextMenuPrimitive.Portal>
+));
+ContextMenuContent.displayName = "ContextMenuContent";
+
+export const ContextMenuItem = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex cursor-default select-none items-center rounded-xl px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+      className
+    )}
+    {...props}
+  />
+));
+ContextMenuItem.displayName = "ContextMenuItem";
+
+export const ContextMenuSeparator = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Separator
+    ref={ref}
+    className={cn("my-1 h-px bg-border", className)}
+    {...props}
+  />
+));
+ContextMenuSeparator.displayName = "ContextMenuSeparator";
+
+// web/src/components/boq/LevelContextActions.tsx
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { useBoqView } from "@/state/boqView";
+import { ChevronDown, Layers } from "lucide-react";
+import * as React from "react";
+
+/**
+ * Wrap the "Level" cell content with this component.
+ * Right-click opens the menu; left-click works as usual.
+ */
+export const LevelContextActions: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { setAll, setClosed, setDepth } = useBoqView();
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="flex items-center gap-1 cursor-default">
+          {children}
+          <ChevronDown className="ml-1 h-3 w-3 text-muted-foreground" aria-hidden />
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={setAll}>
+          <Layers className="mr-2 h-4 w-4" /> Open All
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={setClosed}>
+          <Layers className="mr-2 h-4 w-4" /> Close All
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {[1,2,3,4,5,6,7,8,9].map(n => (
+          <ContextMenuItem key={n} onSelect={() => setDepth(n)}>
+            Depth {n}
+          </ContextMenuItem>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
+// web/src/pages/BoqTable.tsx
+import * as React from "react";
+import { BoqViewProvider, useBoqView, BoqRow } from "@/state/boqView";
+import { LevelContextActions } from "@/components/boq/LevelContextActions";
+
+// Dummy prop type — wire this to your actual data source
+type Props = { rows: BoqRow[] };
+
+function TableInner({ rows }: Props) {
+  const { visibleRows, mode } = useBoqView();
+  const display = visibleRows(rows);
+
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm text-muted-foreground">
+          View:&nbsp;
+          {mode.kind === "all" ? "All" : mode.kind === "closed" ? "Headings only" : `Depth ≤ ${mode.max}`}
+        </div>
+      </div>
+
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-background">
+          <tr className="text-left">
+            <th className="w-16">
+              {/* Right-click anywhere on the "Level" header too */}
+              <LevelContextActions>Level</LevelContextActions>
+            </th>
+            <th>Description</th>
+            <th className="w-24">Unit</th>
+            <th className="w-24">Qty</th>
+            <th className="w-24">Rate</th>
+            <th className="w-32">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {display.map((r) => (
+            <tr key={r.id} className="border-b last:border-0">
+              <td className="tabular-nums">
+                {/* Wrap each Level cell so the user can right-click anywhere in the column */}
+                <LevelContextActions>
+                  <span>{r.level}</span>
+                </LevelContextActions>
+              </td>
+              <td className="pl-2" style={{ paddingLeft: `${(r.level - 1) * 16}px` }}>
+                {/* indent by level for readability */}
+                {/* ...your description cell content... */}
+              </td>
+              <td>{/* Unit */}</td>
+              <td>{/* Qty */}</td>
+              <td>{/* Rate */}</td>
+              <td>{/* Amount */}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function BoqTablePage(props: Props) {
+  return (
+    <BoqViewProvider>
+      <TableInner {...props} />
+    </BoqViewProvider>
+  );
+}
+
+// web/src/lib/cn.ts
+// (only if you don't already have a classnames helper)
+export function cn(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+
+Commands
+
+# If you don't have the Radix context menu primitive installed (shadcn uses it):
+npm i @radix-ui/react-context-menu
+# If you don't already have the cn helper file, add it as above.
+
+# No DB or server changes. Start/dev as usual:
+npm run web
+
+
+Why this works
+
+Uses shadcn/Radix Context Menu for a native-feeling right-click UI with keyboard support.
+
+View state is centralized in BoqViewProvider so any table, header, or toolbar can drive it.
+
+Open All / Close All / Depth N map cleanly to a single ViewMode, keeping logic simple and predictable.
+
+“Close All” shows only headings by inferring hasChildren when the API doesn’t provide it.
+
+Filtering is pure and fast (O(n)); it never mutates your source data.

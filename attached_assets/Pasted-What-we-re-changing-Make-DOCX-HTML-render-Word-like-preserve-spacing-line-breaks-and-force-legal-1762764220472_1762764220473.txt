@@ -1,0 +1,167 @@
+What we’re changing
+Make DOCX→HTML render “Word-like”: preserve spacing/line breaks, and force legal-style list markers (a) / (i) / (ii) with consistent indent. We do this with a tiny post-processor for Mammoth HTML and a contract CSS module that controls ::marker, margins, and whitespace behavior.
+
+Patch
+
+// server/lib/docx-to-html.ts
+// Converts a .docx Buffer to sanitized, styled HTML and tags <ol> by depth so CSS can render (a),(i),(iii)
+import mammoth from "mammoth";
+import sanitizeHtml from "sanitize-html";
+
+export async function docxToHtml(buf: Buffer) {
+const { value: rawHtml } = await mammoth.convertToHtml({
+buffer: buf,
+styleMap: [
+// keep blank lines and soft line breaks closer to Word’s flow
+"p[style-name='Normal'] => p:fresh",
+"p[style-name='List Paragraph'] => p:fresh"
+].join("\n"),
+});
+
+// Tag ordered lists by nesting depth so CSS can style markers.
+const tagged = rawHtml.replace(/<ol(.?)>/g, "<ol$1 data-depth='0'>")
+.replace(/<ol(.?) data-depth='(\d+)'/g, (_m, attrs, d) => <ol${attrs} data-depth='${Number(d)}'>)
+.replace(/<ol(.?)>/g, (m) => m) // fallback
+// bump depth for nested <ol>
+.replace(/<ol[^>]>([\s\S]?)</ol>/g, (m) => {
+// add depth to child <ol> (simple structural heuristic)
+return m.replace(/<ol(.?)>/g, (_m2, attrs) => {
+const depthMatch = m.match(/data-depth='(\d+)'/);
+const depth = depthMatch ? Number(depthMatch[1]) + 1 : 1;
+return <ol${attrs} data-depth='${depth}'>;
+});
+});
+
+// sanitize (you can relax if you trust the source)
+const clean = sanitizeHtml(tagged, {
+allowedTags: sanitizeHtml.defaults.allowedTags.concat(["ol", "li", "span"]),
+allowedAttributes: {
+ol: ["data-depth", "class"],
+span: ["class"],
+p: ["class"],
+"*": ["style"], // optional—remove if not needed
+},
+});
+
+// Wrap with a class the client CSS targets
+return <article class="contract">${clean}</article>;
+}
+
+// server/routes/upload-contract.ts
+import { Router } from "express";
+import multer from "multer";
+import { docxToHtml } from "../lib/docx-to-html";
+import { z } from "zod";
+
+const upload = multer({ storage: multer.memoryStorage() });
+export const uploadContractRouter = Router();
+
+uploadContractRouter.post(
+"/contracts/preview",
+upload.single("file"),
+async (req, res, next) => {
+try {
+if (!req.file) return res.status(400).json({ error: "file missing" });
+const html = await docxToHtml(req.file.buffer);
+res.type("html").send(html);
+} catch (e) {
+next(e);
+}
+}
+);
+
+// web/src/styles/contract.css
+/* Word-like legal formatting for Mammoth output /
+.contract {
+--indent: 1.75rem;
+line-height: 1.45;
+color: rgb(34 34 34);
+font-size: 0.95rem;
+/ preserve the blank lines and soft wraps coming from Mammoth */
+white-space: normal;
+}
+.contract p { margin: 0 0 .5rem 0; }
+.contract ol { margin: .25rem 0 .5rem 0; padding-left: var(--indent); list-style: none; counter-reset: item; }
+.contract li { margin: .15rem 0; }
+.contract li::marker { font-variant-numeric: tabular-nums; }
+
+/* Depth 0 => (a)(b)(c) */
+.contract ol[data-depth="0"] > li { counter-increment: item; }
+.contract ol[data-depth="0"] > li::marker { content: "(" counter(item, lower-alpha) ") "; }
+
+/* Depth 1 => (i)(ii)(iii) */
+.contract ol[data-depth="1"] { counter-reset: item; }
+.contract ol[data-depth="1"] > li { counter-increment: item; }
+.contract ol[data-depth="1"] > li::marker { content: "(" counter(item, lower-roman) ") "; }
+
+/* Depth 2+ => (1)(2)(3) */
+.contract ol[data-depth="2"] > li::marker { content: "(" counter(item, decimal) ") "; }
+
+/* Tighten nested indents slightly to match Word feel */
+.contract ol[data-depth="1"] { padding-left: calc(var(--indent) - .25rem); }
+.contract ol[data-depth="2"] { padding-left: calc(var(--indent) - .5rem); }
+
+/* Optional: bold defined terms like “Affiliate:” at start of a line */
+.contract p > strong:first-child { font-weight: 600; }
+
+/* Optional thin rules like Word */
+.contract hr { border: none; border-top: 1px solid #E5E7EB; margin: .75rem 0; }
+
+// web/src/components/ContractPreview.tsx
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import "../styles/contract.css";
+
+type Props = { file: File }; // .docx
+
+export default function ContractPreview({ file }: Props) {
+const { data, isLoading, error } = useQuery({
+queryKey: ["contract-preview", file.name, file.size],
+queryFn: async () => {
+const form = new FormData();
+form.append("file", file);
+const res = await fetch("/contracts/preview", { method: "POST", body: form, credentials: "include" });
+if (!res.ok) throw new Error(await res.text());
+return res.text();
+},
+});
+
+const ref = useRef<HTMLDivElement>(null);
+useEffect(() => {
+if (ref.current) ref.current.scrollTop = 0;
+}, [data]);
+
+if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Rendering preview…</div>;
+if (error) return <div className="p-4 text-sm text-red-600">{String(error)}</div>;
+
+return (
+<div ref={ref} className="rounded-2xl bg-white p-6 shadow-sm border overflow-auto h-[70vh]">
+{/* data is safe HTML from our sanitizer */}
+<div dangerouslySetInnerHTML={{ __html: data ?? "" }} />
+</div>
+);
+}
+
+// server/index.ts (register the router)
+import { uploadContractRouter } from "./routes/upload-contract";
+app.use(uploadContractRouter);
+
+Commands
+
+npm i mammoth sanitize-html multer
+
+(server already running with tsx)
+
+npm run dev
+
+Why this works
+
+::marker + CSS counters render (a), (i), (iii) reliably—no reliance on Word’s proprietary numbering.
+
+We preserve spacing/line breaks and set sensible margins to mimic Word’s default paragraph rhythm.
+
+The simple depth tagging gives us stable styling per nesting level regardless of what Mammoth emits.
+
+Sanitization prevents script/style injection from DOCX while keeping necessary tags/attributes.
+
+The preview is just HTML/CSS—no flaky canvas or images—so it’s crisp, selectable, and printable.

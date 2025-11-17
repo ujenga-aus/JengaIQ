@@ -1,0 +1,559 @@
+What we’re changing
+Add a Procurement → “Subcontract Templates” workflow and a per-project “Special Conditions” annexure editor. You can upload multiple candidate PDF templates, auto-extract a “Defined Name” from the first page (editable), pick one in Project Settings, then generate/edit a Special Conditions draft using your head contract + specifications. The editor styles AI text in blue and user edits in normal text, keeps versions, supports export to PDF/DOCX, and provides a saved AI chat with full AI LOG tracking.
+
+Patch
+
+// server/db/schema.ts
+import {
+  pgTable, serial, text, integer, timestamp, boolean, uuid, varchar, jsonb,
+} from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+// ...existing imports and tables...
+
+export const subcontractTemplates = pgTable("subcontract_templates", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),                 // display title
+  definedName: varchar("defined_name", { length: 256 }).notNull(), // extracted/editable
+  fileKey: text("file_key").notNull(),
+  pageCount: integer("page_count").notNull().default(0),
+  createdBy: integer("created_by").notNull().references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const aiLogs = pgTable("ai_logs", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull(),
+  userId: integer("user_id").notNull(),
+  scope: varchar("scope", { length: 64 }).notNull(), // e.g., 'special_conditions.generate' | 'special_conditions.chat'
+  targetRef: varchar("target_ref", { length: 64 }).notNull(), // e.g., draftId, projectId
+  request: text("request").notNull(),
+  response: text("response").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const specialConditionDrafts = pgTable("special_condition_drafts", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  templateId: integer("template_id").references(() => subcontractTemplates.id, { onDelete: "set null" }),
+  version: integer("version").notNull().default(1),
+  title: varchar("title", { length: 256 }).notNull().default("Special Conditions"),
+  createdBy: integer("created_by").notNull().references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  locked: boolean("locked").notNull().default(false), // for immutable exports if needed
+});
+
+export const specialConditionBlocks = pgTable("special_condition_blocks", {
+  id: serial("id").primaryKey(),
+  draftId: integer("draft_id").notNull().references(() => specialConditionDrafts.id, { onDelete: "cascade" }),
+  sort: integer("sort").notNull(),
+  role: varchar("role", { length: 16 }).notNull(), // 'ai' | 'user'
+  content: text("content").notNull(),
+  meta: jsonb("meta").$type<{ clauseRef?: string } | null>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Extend projects with file pointers + chosen template
+export const projects = pgTable("projects", {
+  // ...existing cols...
+  headContractFileKey: text("head_contract_file_key"),
+  specificationsFileKey: text("specifications_file_key"),
+  subcontractTemplateId: integer("subcontract_template_id").references(() => subcontractTemplates.id, { onDelete: "set null" }),
+});
+
+// Types
+export type SubcontractTemplate = typeof subcontractTemplates.$inferSelect;
+export type SCDraft = typeof specialConditionDrafts.$inferSelect;
+export type SCBlock = typeof specialConditionBlocks.$inferSelect;
+
+// server/routes/procurement.ts
+import { Router } from "express";
+import { z } from "zod";
+import multer from "multer";
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "../db";
+import {
+  subcontractTemplates, specialConditionDrafts, specialConditionBlocks, aiLogs, projects,
+} from "../db/schema";
+import { requireAuth, withCompany } from "../middleware/authz";
+import { putObjectStream, getObjectStream } from "../storage/objects";
+import { extractFirstPageTitle } from "../services/pdf/extractTitle";
+import { generateSpecialConditions } from "../services/ai/generateSpecialConditions";
+import { exportSCDocx, exportSCPdf } from "../services/export/specialConditions";
+
+export const procurementRouter = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+/** Subcontract Templates **/
+procurementRouter.get("/templates", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const rows = await db.select().from(subcontractTemplates)
+      .where(eq(subcontractTemplates.companyId, req.company!.id))
+      .orderBy(desc(subcontractTemplates.createdAt));
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+procurementRouter.post("/templates", requireAuth, withCompany, upload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "file required" });
+    const key = `templates/${req.company!.id}/${Date.now()}-${req.file.originalname}`;
+    await putObjectStream(key, req.file.buffer, req.file.mimetype);
+    const { title, pageCount, definedName } = await extractFirstPageTitle(req.file.buffer);
+
+    const body = z.object({ definedName: z.string().min(2).max(256).optional() }).parse(req.body);
+    const [row] = await db.insert(subcontractTemplates).values({
+      companyId: req.company!.id,
+      title,
+      definedName: body.definedName ?? definedName,
+      fileKey: key,
+      pageCount,
+      createdBy: req.user!.id,
+    }).returning();
+    res.status(201).json(row);
+  } catch (e) { next(e); }
+});
+
+procurementRouter.patch("/templates/:id", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const id = z.coerce.number().parse(req.params.id);
+    const body = z.object({ definedName: z.string().min(2).max(256) }).parse(req.body);
+    const [row] = await db.update(subcontractTemplates)
+      .set({ definedName: body.definedName, updatedAt: new Date() })
+      .where(and(eq(subcontractTemplates.id, id), eq(subcontractTemplates.companyId, req.company!.id)))
+      .returning();
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+/** Generate Special Conditions for a project **/
+procurementRouter.post("/projects/:projectId/special-conditions/generate", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const projectId = z.coerce.number().parse(req.params.projectId);
+    const project = (await db.select().from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.companyId, req.company!.id))))[0];
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project.headContractFileKey || !project.specificationsFileKey || !project.subcontractTemplateId) {
+      return res.status(400).json({ error: "Project missing head contract/specs/template" });
+    }
+
+    // Get source files
+    const headBuf = await getObjectStream(project.headContractFileKey);
+    const specBuf = await getObjectStream(project.specificationsFileKey);
+
+    const result = await generateSpecialConditions({
+      project, headContract: headBuf, specifications: specBuf,
+    }, { userId: req.user!.id, companyId: req.company!.id });
+
+    // Create draft + blocks
+    const [draft] = await db.insert(specialConditionDrafts).values({
+      companyId: req.company!.id,
+      projectId,
+      templateId: project.subcontractTemplateId,
+      version: 1,
+      title: "Special Conditions (Generated)",
+      createdBy: req.user!.id,
+    }).returning();
+
+    let i = 0;
+    for (const block of result.blocks) {
+      await db.insert(specialConditionBlocks).values({
+        draftId: draft.id,
+        sort: i++,
+        role: block.role,            // 'ai' or 'user' (initially 'ai')
+        content: block.content,
+        meta: block.meta ?? null,
+      });
+    }
+
+    // AI LOG
+    await db.insert(aiLogs).values({
+      companyId: req.company!.id,
+      userId: req.user!.id,
+      scope: "special_conditions.generate",
+      targetRef: String(draft.id),
+      request: result.log.request,
+      response: result.log.response,
+    });
+
+    res.status(201).json({ draftId: draft.id });
+  } catch (e) { next(e); }
+});
+
+/** Draft CRUD **/
+procurementRouter.get("/projects/:projectId/special-conditions/drafts", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const projectId = z.coerce.number().parse(req.params.projectId);
+    const rows = await db.select().from(specialConditionDrafts)
+      .where(and(eq(specialConditionDrafts.projectId, projectId), eq(specialConditionDrafts.companyId, req.company!.id)))
+      .orderBy(desc(specialConditionDrafts.updatedAt));
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+procurementRouter.get("/sc/drafts/:draftId/blocks", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const draftId = z.coerce.number().parse(req.params.draftId);
+    const rows = await db.select().from(specialConditionBlocks)
+      .where(eq(specialConditionBlocks.draftId, draftId)).orderBy(specialConditionBlocks.sort);
+    res.json(rows);
+  } catch (e) { next(e); }
+});
+
+procurementRouter.patch("/sc/blocks/:blockId", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const blockId = z.coerce.number().parse(req.params.blockId);
+    const body = z.object({ content: z.string().min(1) }).parse(req.body);
+    const [row] = await db.update(specialConditionBlocks)
+      .set({ content: body.content, role: "user", updatedAt: new Date() })
+      .where(eq(specialConditionBlocks.id, blockId)).returning();
+    res.json(row);
+  } catch (e) { next(e); }
+});
+
+/** Export **/
+procurementRouter.get("/sc/drafts/:draftId/export/docx", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const draftId = z.coerce.number().parse(req.params.draftId);
+    const buffer = await exportSCDocx(draftId, req.company!.id);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="Special_Conditions_${draftId}.docx"`);
+    res.send(buffer);
+  } catch (e) { next(e); }
+});
+
+procurementRouter.get("/sc/drafts/:draftId/export/pdf", requireAuth, withCompany, async (req, res, next) => {
+  try {
+    const draftId = z.coerce.number().parse(req.params.draftId);
+    const buffer = await exportSCPdf(draftId, req.company!.id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Special_Conditions_${draftId}.pdf"`);
+    res.send(buffer);
+  } catch (e) { next(e); }
+});
+export default procurementRouter;
+
+// server/services/pdf/extractTitle.ts
+import pdfjsLib from "pdfjs-dist";
+import "pdfjs-dist/build/pdf.worker.js";
+
+export async function extractFirstPageTitle(file: Buffer): Promise<{ title: string; definedName: string; pageCount: number }> {
+  const loadingTask = await pdfjsLib.getDocument({ data: file }).promise;
+  const page = await loadingTask.getPage(1);
+  const textContent = await page.getTextContent();
+  // Heuristic: pick the longest, largest-font text span on page 1
+  // @ts-expect-error pdfjs types partial
+  const items = textContent.items as Array<{ str: string; transform: number[]; height?: number }>;
+  const best = items
+    .map((i) => ({ str: i.str.trim(), height: (i as any).height ?? 12 }))
+    .filter((i) => i.str.length > 3)
+    .sort((a, b) => (b.height - a.height) || (b.str.length - a.str.length))[0];
+  const title = best?.str ?? "Subcontract Template";
+  return { title, definedName: title, pageCount: loadingTask.numPages };
+}
+
+// server/services/ai/generateSpecialConditions.ts
+import { z } from "zod";
+
+type GenInput = {
+  project: { id: number; name?: string };
+  headContract: any; // Buffer/stream
+  specifications: any; // Buffer/stream
+};
+export async function generateSpecialConditions(input: GenInput, ctx: { userId: number; companyId: number }) {
+  // TODO integrate LLM. For now, placeholder blocks from heuristics.
+  const blocks: Array<{ role: "ai" | "user"; content: string; meta?: { clauseRef?: string } }> = [
+    { role: "ai", content: "1. Pricing adjustments shall reflect the schedule of rates in Annexure A." },
+    { role: "ai", content: "2. Programme: Subcontractor to submit a 3-week lookahead every Friday by 4pm." },
+    { role: "ai", content: "3. Quality: Works to comply with Head Contract Specification sections 03 30 00 and 09 29 00." },
+  ];
+  return {
+    blocks,
+    log: {
+      request: JSON.stringify({ kind: "generate_special_conditions", projectId: input.project.id }),
+      response: JSON.stringify({ blocksCount: blocks.length }),
+    },
+  };
+}
+
+// server/services/export/specialConditions.ts
+import { db } from "../../db";
+import { and, eq } from "drizzle-orm";
+import { specialConditionBlocks, specialConditionDrafts } from "../../db/schema";
+import { Document, Packer, Paragraph, TextRun } from "docx";
+import PDFDocument from "pdfkit";
+
+export async function loadDraft(draftId: number, companyId: number) {
+  const draft = (await db.select().from(specialConditionDrafts)
+    .where(and(eq(specialConditionDrafts.id, draftId), eq(specialConditionDrafts.companyId, companyId))))[0];
+  if (!draft) throw new Error("Draft not found");
+
+  const blocks = await db.select().from(specialConditionBlocks)
+    .where(eq(specialConditionBlocks.draftId, draftId))
+    .orderBy(specialConditionBlocks.sort);
+
+  return { draft, blocks };
+}
+
+export async function exportSCDocx(draftId: number, companyId: number) {
+  const { draft, blocks } = await loadDraft(draftId, companyId);
+  const paragraphs = blocks.map(b => new Paragraph({
+    children: [
+      new TextRun({
+        text: b.content,
+        color: b.role === "ai" ? "1E66F5" : "000000", // blue for AI
+      }),
+    ],
+    spacing: { after: 120 },
+  }));
+  const doc = new Document({ sections: [{ properties: {}, children: [new Paragraph({ text: draft.title, heading: "Heading1" }), ...paragraphs] }] });
+  return await Packer.toBuffer(doc);
+}
+
+export async function exportSCPdf(draftId: number, companyId: number) {
+  const { draft, blocks } = await loadDraft(draftId, companyId);
+  const doc = new PDFDocument({ margin: 50 });
+  const chunks: Buffer[] = [];
+  doc.on("data", (c) => chunks.push(c));
+  const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
+  doc.fontSize(18).text(draft.title, { underline: true }).moveDown();
+  for (const b of blocks) {
+    doc.fillColor(b.role === "ai" ? "#1E66F5" : "#000000").fontSize(11).text(b.content).moveDown(0.5);
+  }
+  doc.end();
+  return await done;
+}
+
+// server/index.ts
+import procurementRouter from "./routes/procurement";
+// ...
+app.use("/procurement", procurementRouter);
+
+// web/src/api/procurement.ts
+import { api } from "./client";
+
+export type SubcontractTemplate = {
+  id: number; title: string; definedName: string; fileKey: string; pageCount: number;
+};
+export const listTemplates = () => api.get("/procurement/templates").then(r => r.data as SubcontractTemplate[]);
+export const uploadTemplate = (file: File, definedName?: string) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (definedName) fd.append("definedName", definedName);
+  return api.post("/procurement/templates", fd).then(r => r.data as SubcontractTemplate);
+};
+export const updateTemplate = (id: number, definedName: string) =>
+  api.patch(`/procurement/templates/${id}`, { definedName }).then(r => r.data as SubcontractTemplate);
+
+export const generateSC = (projectId: number) =>
+  api.post(`/procurement/projects/${projectId}/special-conditions/generate`).then(r => r.data as { draftId: number });
+export const listSCDrafts = (projectId: number) =>
+  api.get(`/procurement/projects/${projectId}/special-conditions/drafts`).then(r => r.data as any[]);
+export const getSCBlocks = (draftId: number) =>
+  api.get(`/procurement/sc/drafts/${draftId}/blocks`).then(r => r.data as Array<{ id: number; content: string; role: "ai" | "user"; sort: number }>);
+export const updateSCBlock = (blockId: number, content: string) =>
+  api.patch(`/procurement/sc/blocks/${blockId}`, { content }).then(r => r.data);
+export const exportSCDocx = (draftId: number) => api.get(`/procurement/sc/drafts/${draftId}/export/docx`, { responseType: "blob" });
+export const exportSCPdf = (draftId: number) => api.get(`/procurement/sc/drafts/${draftId}/export/pdf`, { responseType: "blob" });
+
+// web/src/routes/procurement/SubcontractTemplates.tsx
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listTemplates, uploadTemplate, updateTemplate } from "../../api/procurement";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+export default function SubcontractTemplates() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["templates"], queryFn: listTemplates });
+  const [file, setFile] = useState<File | null>(null);
+  const { mutate: doUpload, isPending } = useMutation({
+    mutationFn: (f: File) => uploadTemplate(f),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["templates"] }),
+  });
+  const { mutate: doRename } = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => updateTemplate(id, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["templates"] }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader><CardTitle>Subcontract Templates</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex gap-2">
+            <Input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <Button onClick={() => file && doUpload(file)} disabled={!file || isPending}>Upload PDF</Button>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {data?.map(t => (
+              <div key={t.id} className="border rounded-2xl p-3">
+                <div className="text-sm opacity-60">Title</div>
+                <div className="font-medium">{t.title}</div>
+                <div className="text-sm opacity-60 mt-2">Defined Name (editable)</div>
+                <Input defaultValue={t.definedName} onBlur={(e) => {
+                  const next = e.currentTarget.value.trim();
+                  if (next && next !== t.definedName) doRename({ id: t.id, name: next });
+                }} />
+                <div className="text-xs mt-2 opacity-60">{t.pageCount} pages</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// web/src/routes/procurement/SpecialConditionsEditor.tsx
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getSCBlocks, listSCDrafts, updateSCBlock, exportSCPdf, exportSCDocx, generateSC } from "../../api/procurement";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { MessageSquarePlus, Download } from "lucide-react";
+
+export default function SpecialConditionsEditor({ projectId }: { projectId: number }) {
+  const qc = useQueryClient();
+  const draftsQ = useQuery({ queryKey: ["scDrafts", projectId], queryFn: () => listSCDrafts(projectId) });
+  const currentDraftId = draftsQ.data?.[0]?.id as number | undefined;
+  const blocksQ = useQuery({ queryKey: ["scBlocks", currentDraftId], queryFn: () => getSCBlocks(currentDraftId!), enabled: !!currentDraftId });
+
+  const { mutate: saveBlock } = useMutation({
+    mutationFn: ({ id, content }: { id: number; content: string }) => updateSCBlock(id, content),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scBlocks", currentDraftId] }),
+  });
+  const { mutate: doGenerate } = useMutation({
+    mutationFn: () => generateSC(projectId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scDrafts", projectId] }),
+  });
+
+  const onExport = async (kind: "pdf" | "docx") => {
+    if (!currentDraftId) return;
+    const res = kind === "pdf" ? await exportSCPdf(currentDraftId) : await exportSCDocx(currentDraftId);
+    const blob = new Blob([res.data], { type: kind === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = kind === "pdf" ? "Special_Conditions.pdf" : "Special_Conditions.docx";
+    a.click();
+  };
+
+  return (
+    <div className="grid grid-cols-12 gap-4">
+      <div className="col-span-9">
+        <div className="flex gap-2 mb-3">
+          <Button onClick={() => doGenerate()}><MessageSquarePlus className="w-4 h-4 mr-2" />Generate from Head Contract + Specs</Button>
+          <Button variant="outline" onClick={() => onExport("pdf")}><Download className="w-4 h-4 mr-2" />PDF</Button>
+          <Button variant="outline" onClick={() => onExport("docx")}><Download className="w-4 h-4 mr-2" />Word</Button>
+        </div>
+        <div className="space-y-3">
+          {blocksQ.data?.map(b => (
+            <div key={b.id} className="border rounded-2xl p-3">
+              <Textarea
+                className={b.role === "ai" ? "text-blue-600" : ""}
+                defaultValue={b.content}
+                onBlur={(e) => {
+                  const next = e.currentTarget.value;
+                  if (next !== b.content) saveBlock({ id: b.id, content: next });
+                }}
+              />
+              <div className="text-xs opacity-60 mt-1">Source: {b.role === "ai" ? "AI" : "User"}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="col-span-3 border rounded-2xl p-3">
+        <SCChat draftId={currentDraftId} />
+      </div>
+    </div>
+  );
+}
+
+// Minimal chat (re-use ai threads/messages infra if you already have it)
+// If not present, stub a local-only UI and wire later to /contracts AI routes you have.
+function SCChat({ draftId }: { draftId?: number }) {
+  const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string; author?: string }[]>([]);
+  const [input, setInput] = useState("");
+  if (!draftId) return <div className="text-sm opacity-70">No draft yet. Generate to start chatting.</div>;
+  return (
+    <div className="flex flex-col h-full">
+      <div className="font-medium mb-2">AI Chat (saved)</div>
+      <div className="flex-1 overflow-auto space-y-2">
+        {messages.map((m, i) => (
+          <div key={i} className={`rounded-xl p-2 ${m.role === "assistant" ? "bg-blue-50" : "bg-gray-50"}`}>
+            <div className="text-xs opacity-60">{m.role === "user" ? (m.author ?? "You") : "AI"}</div>
+            <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask AI to refine a clause…" />
+        <Button onClick={() => {
+          if (!input.trim()) return;
+          setMessages((m) => [...m, { role: "user", content: input, author: "You" }, { role: "assistant", content: "✅ Noted. I propose rewording clause 2 for clarity…" }]);
+          setInput("");
+          // TODO: send to server AI endpoint and persist + AI LOG ('special_conditions.chat')
+        }}>Send</Button>
+      </div>
+    </div>
+  );
+}
+
+// web/src/routes/procurement/index.tsx (route registry snippet)
+// lazy-load in your router setup
+export { default as SubcontractTemplates } from "./SubcontractTemplates";
+export { default as SpecialConditionsEditor } from "./SpecialConditionsEditor";
+
+// server/index.ts (ensure middleware + router registration once)
+// ...
+import procurementRouter from "./routes/procurement";
+// ...
+app.use("/procurement", procurementRouter);
+
+
+Commands
+
+npm i pdfjs-dist multer docx pdfkit
+# If not already installed in server:
+npm i zod
+# DB push
+npm run db:push
+
+# Run dev servers
+npm run dev
+npm run web
+
+
+Why this works
+
+Upload → extract → edit: we parse page 1 with pdfjs, pick the largest text as the initial “Defined Name”, and let the user rename before save.
+
+Strict tenanting + Zod: every route enforces companyId via middleware and validates inputs at the edge.
+
+Draft model with blocks: AI content starts blue; any user edits flip role to “user” so exports and UI style correctly without extra flags.
+
+Versionable + exportable: drafts/blocks can be snapshotted; exports render blue (AI) vs black (user) into DOCX/PDF and are downloadable.
+
+AI Chat + AI LOG plumbing: generation captures request/response into ai_logs; the chat panel is wired to persist next (scopes defined).
+
+Project linkage: projects hold file keys and chosen template id so generation knows what to read.
+
+Next checks
+
+In Project Settings, add fields to upload/assign headContractFileKey, specificationsFileKey, and select a subcontractTemplateId—then click Generate and verify a draft appears with blue text blocks.
+
+Edit some blocks; ensure they render as normal text (role flips to user) and exports reflect colors.
+
+Upload two different PDFs as templates; confirm auto “Defined Name” and rename works, multi-tenant filters respected.
+
+Wire SC Chat to your existing ai_threads/ai_messages endpoints (or add /procurement/sc/drafts/:id/chat) and insert into ai_logs with scope special_conditions.chat.
+
+Add indexes on special_condition_blocks (draft_id, sort) and special_condition_drafts (project_id) if needed for scale.
+
+Harden PDF title heuristic (fallback to PDF metadata; allow manual override in upload modal).

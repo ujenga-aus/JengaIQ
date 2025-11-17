@@ -1,0 +1,186 @@
+What we’re changing
+Fix the tooltip layout + numbering by emitting real markers (a)/(i)/(iii) and building a true nested list where sub-lists live inside the parent item (e.g., (a) … contains the (i)/(ii) items). This stops the “one long paragraph” and the mis-numbering you’re seeing for Affiliate and similar clauses.
+
+Patch
+
+// web/src/components/PdfHoverHints.tsx
+// Replace renderNestedListHTML with the nested list builder below.
+// (Keep the rest of the file from the previous patch.)
+
+/** Parse "Term: ... (a) text: (i) sub ...; (ii) sub ...; (b) ..." into nested HTML.
+
+Preserves the EXACT marker text (no auto-counters).
+
+Properly nests deeper levels INSIDE the parent <li>.
+*/
+function renderNestedListHTML(raw: string) {
+let out: string[] = [];
+const openLI: Record<number, boolean> = {}; // which depths currently have an open <li>
+let deepest = -1; // highest open depth (-1 = none)
+
+const push = (s: string) => out.push(s);
+
+const openListTo = (toDepth: number) => {
+for (let d = deepest + 1; d <= toDepth; d++) {
+push(<ol class="tlist" data-depth="${d}">);
+openLI[d] = false;
+deepest = d;
+}
+};
+
+const closeLIAt = (d: number) => {
+if (openLI[d]) {
+push(</li>);
+openLI[d] = false;
+}
+};
+
+const closeDownTo = (targetDepth: number) => {
+for (let d = deepest; d > targetDepth; d--) {
+closeLIAt(d); // close last item at that depth
+push(</ol>); // then close the list
+delete openLI[d];
+}
+deepest = targetDepth;
+};
+
+const startItem = (depth: number, marker: string, body: string) => {
+if (deepest < 0) openListTo(depth); // first list
+else if (depth > deepest) openListTo(depth); // child list inside previous <li>
+else if (depth < deepest) { // bubble up to a parent level
+closeDownTo(depth);
+closeLIAt(depth);
+} else { // same level sibling
+closeLIAt(depth);
+}
+// Open new item at depth; keep it open to allow a child list
+push(
+<li><span class="m">${escapeHtml(marker)}</span><div class="li-body">${escapeHtml( body )}</div>
+);
+openLI[depth] = true;
+};
+
+const finish = () => {
+closeDownTo(-1);
+};
+
+// Optional leading "Term: ..." handling
+const tmatch = raw.match(/^\s*([^:]+?):\s*(.)$/s);
+if (tmatch) {
+const [, term, rest] = tmatch;
+// If rest starts with a marker, drop the paragraph body; otherwise render and exit.
+if (!/^\s(/.test(rest)) {
+return <p class="tpara"><strong>${escapeHtml(term)}:</strong> ${escapeHtml(rest)}</p>;
+}
+out.push(<p class="tpara"><strong>${escapeHtml(term)}:</strong></p>);
+raw = rest;
+}
+
+// Tokenize markers and text segments
+const TOK = /(
+[
+𝑎
+−
+𝑧
+]
+[a−z]|
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+|
+\d
++
+\d+)/gi;
+const segs = raw.split(TOK);
+
+const depthOf = (m: string) =>
+/^
+[
+𝑎
+−
+𝑧
+]
+[a−z]$/i.test(m) ? 0 : /^
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+$/i.test(m) ? 1 : /^
+\d
++
+\d+$/.test(m) ? 2 : -1;
+
+// Pre-text (before first marker) like "means …" or "for any:" should be a paragraph.
+const preface = segs[0]?.trim();
+if (preface) push(<p class="tpara">${escapeHtml(preface)}</p>);
+
+for (let i = 1; i < segs.length; i += 2) {
+const marker = segs[i];
+const d = depthOf(marker);
+if (d < 0) continue;
+
+// Strip trailing connector punctuation: ; ;and ;or (case-insensitive)
+const body = (segs[i + 1] || "")
+  .trim()
+  .replace(/\s*;(?:\s*(?:and|or))?\s*$/i, "");
+
+startItem(d, marker, body);
+
+
+}
+
+finish();
+return out.join("");
+}
+
+function escapeHtml(s: string) {
+return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+}
+
+// web/src/styles/contract-tooltips.css
+/* Marker grid already added earlier; ensure the body div + child lists flow inside <li> /
+.contract-tooltip ol.tlist { list-style: none; margin: .25rem 0; padding-left: 0; }
+.contract-tooltip ol.tlist > li {
+display: grid;
+grid-template-columns: auto 1fr; / marker | content /
+column-gap: .6ch;
+align-items: start;
+margin: .28rem 0;
+}
+.contract-tooltip ol.tlist > li .m { width: 3ch; text-align: right; }
+.contract-tooltip ol.tlist[data-depth="1"] > li .m { width: 3.6ch; } / roman a bit wider */
+.contract-tooltip ol.tlist[data-depth="2"] > li .m { width: 3.2ch; }
+
+.contract-tooltip ol.tlist[data-depth="1"] { margin-left: 1.25rem; }
+.contract-tooltip ol.tlist[data-depth="2"] { margin-left: 1.75rem; }
+.contract-tooltip ol.tlist > li .li-body { min-width: 0; }
+.contract-tooltip .tpara { margin: 0 0 .5rem 0; }
+
+Commands
+
+npm run web
+
+Why this works
+
+Emits the real clause marker text—no counters—so (d) stays (d).
+
+Properly nests lists inside the parent <li>, matching Word’s structure ((a) contains (i)/(ii)).
+
+Keeps interstitial lead-ins like “means …” or “for any:” as normal paragraphs (not bullets).
+
+Grid marker column = perfect hanging indents for wrapped lines.
+
+Regex trims ; and / ; or at clause ends so bullets don’t carry connector text.

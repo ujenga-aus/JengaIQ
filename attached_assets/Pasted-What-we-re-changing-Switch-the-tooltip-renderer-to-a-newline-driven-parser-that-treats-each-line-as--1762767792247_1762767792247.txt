@@ -1,0 +1,218 @@
+What we’re changing
+Switch the tooltip renderer to a newline-driven parser that treats each line as either a clause line "(a)…", a sub-clause line "(i)…", or a normal paragraph. Also update the AI extraction prompt so definitions are saved with \n before each marker—making parsing simple and robust.
+
+Patch
+
+// server/smartExtraction.ts
+// Add/adjust the extraction prompt so the model inserts newlines before markers.
+export const DEFINITION_EXTRACTION_PROMPT = `
+Extract each Definition as plain text. VERY IMPORTANT:
+
+Start the definition with "Term:".
+
+Insert a NEW LINE before each list marker and sub-marker.
+Examples:
+Term: means
+(a) first point:
+(i) sub point one;
+(ii) sub point two; and
+(b) second point.
+
+Keep original markers as-is (do not renumber).
+
+Keep internal references verbatim (e.g., "clause 25.2(b)") but DO NOT insert a newline before those; only before real list items.
+
+Use plain text only, no markdown.
+`;
+
+// (wherever you call your LLM) ensure you pass DEFINITION_EXTRACTION_PROMPT
+// and store the returned text exactly (including \n). No other code changes needed here.
+
+// web/src/components/PdfHoverHints.tsx
+// Replace ONLY the list renderer with the newline-driven version.
+// Keep the rest of PdfHoverHints as previously delivered (observer, tagging, etc.).
+
+/** Newline-driven renderer.
+
+Assumes definitions are saved as:
+
+"Term: means\n(a) ...\n (i) ...\n(b) ..."
+
+Lines beginning with a marker open a list item at depth 0/1/2.
+
+Non-marker lines become paragraphs; if they follow an open <li> they are appended inside that item.
+*/
+function renderNestedListHTML(raw: string) {
+const esc = (s: string) =>
+s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+
+const lines = raw.replace(/\r\n/g, "\n").split("\n").map(l => l.trim()).filter(l => l.length > 0);
+
+const depthOf = (marker: string) =>
+/^
+[
+𝑎
+−
+𝑧
+]
+[a−z]$/i.test(marker) ? 0 :
+/^
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+$/i.test(marker) ? 1 :
+/^
+\d
++
+\d+$/.test(marker) ? 2 : -1;
+
+type Frame = { depth: number; hasOpenLi: boolean };
+const out: string[] = [];
+const stack: Frame[] = []; // stack of open <ol>s
+
+const openList = (depth: number) => {
+out.push(<ol class="tlist" data-depth="${depth}">);
+stack.push({ depth, hasOpenLi: false });
+};
+
+const closeLi = () => {
+if (stack.length && stack[stack.length - 1].hasOpenLi) {
+out.push(</li>);
+stack[stack.length - 1].hasOpenLi = false;
+}
+};
+
+const closeToDepth = (target: number) => {
+while (stack.length && stack[stack.length - 1].depth > target) {
+closeLi();
+out.push(</ol>);
+stack.pop();
+}
+};
+
+const startItem = (depth: number, marker: string, text: string) => {
+// open lists up to 'depth'
+if (!stack.length || stack[stack.length - 1].depth < depth) {
+for (let d = stack.length ? stack[stack.length - 1].depth + 1 : 0; d <= depth; d++) {
+openList(d);
+}
+} else if (stack[stack.length - 1].depth > depth) {
+closeToDepth(depth);
+} else {
+// same level
+closeLi();
+}
+out.push(
+<li><span class="m">${esc(marker)}</span><div class="li-body">${esc(text)}</div>
+);
+stack[stack.length - 1].hasOpenLi = true;
+};
+
+const emitPara = (text: string) => {
+// If we're inside an open <li>, make it a paragraph within the li body; else a top-level para.
+if (stack.length && stack[stack.length - 1].hasOpenLi) {
+out.push(<p class="tpara">${esc(text)}</p>);
+} else {
+out.push(<p class="tpara">${esc(text)}</p>);
+}
+};
+
+// Split off a "Term:" header if present (first line may be "Term: ...")
+// If the first line contains a colon token and NOT a leading marker, emit as heading.
+const first = lines[0] ?? "";
+if (/^[^()]+:/.test(first) && !/^
+\s
+∗
+[
+𝑎
+−
+𝑧
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+\d
+]
++
+\s
+∗
+\s∗[a−zivxlcdm\d]+\s∗/i.test(first)) {
+emitPara(<strong>${esc(first)}</strong>);
+lines.shift();
+}
+
+const END_CONNECTOR_RE = /\s*[;,]?\s*(?:and/or|and|or)\s*$/i;
+
+for (const rawLine of lines) {
+// marker at start of line (ignore indentation)
+const m = rawLine.match(/^\s*(
+[
+𝑎
+−
+𝑧
+]
+[a−z]|
+[
+𝑖
+𝑣
+𝑥
+𝑙
+𝑐
+𝑑
+𝑚
+]
++
+[ivxlcdm]+|
+\d
++
+\d+)\s+(.*)$/i);
+if (m) {
+const marker = m[1];
+const body = (m[2] || "").replace(END_CONNECTOR_RE, "").trim();
+const d = depthOf(marker);
+if (d >= 0) {
+startItem(d, marker, body);
+continue;
+}
+}
+// not a marker → just a paragraph (still inside current li if one is open)
+emitPara(rawLine);
+}
+
+// close all open structures
+closeToDepth(-1);
+return out.join("");
+}
+
+// web/src/styles/contract-tooltips.css
+/* Ensure paragraphs inside list items have some rhythm /
+.contract-tooltip .tpara { margin: .35rem 0; }
+.contract-tooltip ol.tlist > li .li-body .tpara { margin: .35rem 0 0 0; } / first para is already the li body text */
+
+Commands
+
+Frontend only change (plus prompt text on server)
+
+npm run web
+
+Why this works
+
+We rely on newlines inserted by extraction, so parsing is deterministic and simple.
+
+Markers are detected only at the start of a line, avoiding false positives like “clause 25.2(b)”.
+
+We preserve the literal marker text, so letters/romans/numbers never get renumbered.
+
+Child levels are nested by marker type (a) → (i) → (1) using a small, readable stack.
+
+Non-marker lines become paragraphs; if they follow a list item, they render inside that item—matching Word’s flow.

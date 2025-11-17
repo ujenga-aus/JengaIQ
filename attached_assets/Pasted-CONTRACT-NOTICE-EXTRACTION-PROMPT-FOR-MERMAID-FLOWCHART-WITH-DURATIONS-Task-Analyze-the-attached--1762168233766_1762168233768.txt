@@ -1,0 +1,171 @@
+CONTRACT NOTICE EXTRACTION PROMPT (FOR MERMAID FLOWCHART WITH DURATIONS)
+Task: Analyze the attached contract and create a comprehensive list of ALL notice requirements, including explicit notices, implied notice obligations, recurring notices, durations between events, and the complete flow-on effects of each notice with clause references for flowchart mapping.
+Instructions:
+
+Identify ALL notice-triggering language, including but not limited to:
+
+"Notice" / "notify" / "notification"
+"Inform" / "information"
+"Advise" / "advice"
+"Communicate" / "communication"
+"Alert"
+"Report" / "reporting"
+"Disclose" / "disclosure"
+"Submit" / "submission"
+"Provide written..." / "in writing"
+"Shall give..." / "must give..."
+"Warn" / "warning"
+"Request" / "application"
+
+
+For EACH notice requirement identified, extract:
+
+Clause Reference: Clause number and title
+Notice ID: Create a unique identifier (e.g., VAR-01, DELAY-01, TERM-01)
+Trigger Event: What circumstances require the notice (with clause reference)
+Party Giving Notice: Who must provide the notice
+Party Receiving Notice: Who must receive the notice
+Timeframe: When the notice must be given (convert to days where possible: e.g., "immediately" = 0 days, "within 7 days" = 7 days, "within 1 month" = 30 days)
+Form/Method: How it must be delivered (written, email, registered mail, etc.)
+Content Requirements: What information must be included
+Recurring: Is this a one-time or recurring notice? If recurring, what is the frequency in days?
+
+
+CRITICAL: Map the complete FLOW-ON EFFECTS for each notice with DURATIONS and CLAUSE REFERENCES:
+
+Response Required: Must the recipient respond? If yes:
+
+Response timeframe (in days)
+Response clause reference
+Response notice ID
+What the response must contain
+
+
+Duration Between Events: Calculate days between each step
+Subsequent Actions: What happens next? Include:
+
+Decision points (approve/reject/request more info) with clause references
+Alternative pathways based on responses with durations
+Follow-up notices triggered by this notice (with timeframes in days)
+Meetings/consultations required (with notice period in days)
+Dispute resolution triggers (with timeframes and clause references)
+
+
+Consequences:
+
+If notice given properly (clause reference)
+If notice not given or late (clause reference and time bar period)
+If response not provided (clause reference and deemed acceptance period)
+
+
+Loop-backs: Does this notice create a cycle? If yes, what is the cycle duration?
+
+
+Special attention to notices related to:
+
+Variations/Change Orders
+Claims/Disputes
+Delays/Extensions of Time
+Force Majeure events
+Defects/Non-conformance
+Termination/Suspension
+Payment issues
+Safety incidents
+Site conditions
+Breaches/Defaults
+Insurance claims
+Progress reporting (recurring)
+Monthly/periodic submissions (recurring)
+
+
+Output Format - THREE PARTS:
+
+PART A: Notice Inventory Table
+| Notice ID | Clause Ref | Trigger Event | Giver | Recipient | Days to Give | Method | Recurring? (Days) | Content Required |
+PART B: Notice Flow Map (Pre-Mermaid Structure with Durations & Clauses)
+For each notice, provide:
+NOTICE ID: [ID]
+TRIGGER: [Event] (Clause: X.X)
+↓
+STEP 1: [Party] gives notice within [X days] (Clause: X.X)
+   Duration to next step: [X days]
+↓
+STEP 2: [Party] receives notice (Clause: X.X)
+   Duration to next step: [X days maximum for response]
+↓
+DECISION POINT: [What must recipient decide/do?] (Clause: X.X)
+   Total days from initial notice: [X days]
+   
+   → Option A: [Approve/Accept] (Clause: X.X)
+      Duration: [X days to implement]
+      → Leads to: [Notice ID or outcome] (Clause: X.X)
+      
+   → Option B: [Reject/Request More Info] (Clause: X.X)
+      Duration: [X days for revised submission]
+      → Leads to: [Notice ID or outcome] (Clause: X.X)
+      
+   → Option C: [No response within X days] (Clause: X.X)
+      Duration: [Deemed acceptance after X days]
+      → Leads to: [Consequence or Notice ID] (Clause: X.X)
+↓
+LOOP: [If applicable - cycle repeats every X days or until resolved]
+   Maximum iterations: [if specified]
+   Total potential duration: [X days]
+↓
+END STATE: [Final outcome or ongoing process] (Clause: X.X)
+   Total process duration: [Minimum X days to Maximum Y days]
+
+TIME BAR: If notice not given within [X days], claim barred (Clause: X.X)
+
+Create MERMAID FLOWCHARTS for the 5 most complex notice chains
+Use proper Mermaid syntax with:
+
+
+Start/End nodes (stadium shape)
+Process boxes (rectangle) with clause references
+Decision diamonds with clause references
+Durations on connecting arrows
+Subgraphs for each major notice chain
+Color coding for time-critical paths
+Clear labels showing days and clause numbers
+
+Example Mermaid format:
+mermaidgraph TD
+    Start([Trigger Event<br/>Cl 10.1]) -->|Within 7 days| N1[Party A gives Notice<br/>Cl 10.2]
+    N1 -->|Day 0| N2{Party B Response?<br/>Cl 10.3}
+    N2 -->|Approved<br/>Within 14 days<br/>Cl 10.3.1| N3[Work Proceeds<br/>Cl 10.4]
+    N2 -->|Rejected<br/>Within 14 days<br/>Cl 10.3.2| N4[Party A gives Revised Notice<br/>Cl 10.5]
+    N2 -->|No Response<br/>After 14 days<br/>Cl 10.3.3| N5[Deemed Approved<br/>Cl 10.6]
+    N4 -->|Within 7 days| N1
+    
+    style N2 fill:#ffcccc
+    style N5 fill:#ccffcc
+    
+    subgraph "Total Duration: 7-28 days"
+    N1
+    N2
+    N3
+    N4
+    N5
+    end
+PART C: Summary Dashboard
+Provide:
+
+Total notices identified: [X]
+Total recurring notices: [X] (showing frequency in days)
+Longest notice chain: [Notice ID] - [X days minimum to Y days maximum]
+Shortest notice timeframes: List top 5 most urgent (0-2 days)
+Critical path notices: Those that trigger multiple flow-ons
+Time bar risks: Notices with strict deadlines where late notice bars claim
+Deemed provisions: Notices where no response = deemed acceptance/rejection
+Recurring cycle summary: All periodic notices with frequencies
+
+Duration Conversion Guide to Use:
+
+"Immediately" / "Forthwith" = 0 days
+"Within X days" = X days
+"Within X weeks" = X × 7 days
+"Within X months" = X × 30 days (or actual days if calendar month specified)
+"Prior to" = Note as prerequisite (0 days after prior event)
+"By [date]" = Calculate from typical trigger date
+"Reasonable time" = Note as "Reasonable" + estimate if contract defines it

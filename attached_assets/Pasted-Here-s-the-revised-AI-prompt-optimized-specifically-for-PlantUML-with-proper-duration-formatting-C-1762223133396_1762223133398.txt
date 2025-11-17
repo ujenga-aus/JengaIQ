@@ -1,0 +1,279 @@
+Here's the revised AI prompt optimized specifically for PlantUML with proper duration formatting:
+
+CONTRACT NOTICE EXTRACTION PROMPT (FOR PLANTUML FLOWCHART WITH DURATIONS)
+Task: Analyze the attached contract and create a comprehensive list of ALL notice requirements, including explicit notices, implied notice obligations, recurring notices, durations between events, and the complete flow-on effects of each notice with clause references for PlantUML flowchart generation.
+Instructions:
+
+Identify ALL notice-triggering language, including but not limited to:
+
+"Notice" / "notify" / "notification"
+"Inform" / "information"
+"Advise" / "advice"
+"Communicate" / "communication"
+"Alert"
+"Report" / "reporting"
+"Disclose" / "disclosure"
+"Submit" / "submission"
+"Provide written..." / "in writing"
+"Shall give..." / "must give..."
+"Warn" / "warning"
+"Request" / "application"
+
+
+For EACH notice requirement identified, extract:
+
+Clause Reference: Clause number and title
+Notice ID: Create a unique identifier (e.g., VAR-01, DELAY-01, TERM-01)
+Trigger Event: What circumstances require the notice (with clause reference)
+Party Giving Notice: Who must provide the notice (use consistent party names)
+Party Receiving Notice: Who must receive the notice (use consistent party names)
+Duration to Give Notice: Days from trigger event (NUMBER ONLY: e.g., 7, 14, 0, 30)
+Form/Method: How it must be delivered
+Content Requirements: What information must be included
+Recurring: One-time or recurring? If recurring, frequency in days (NUMBER ONLY)
+
+
+CRITICAL: Map FLOW-ON EFFECTS with EXPLICIT DURATIONS (NUMBERS ONLY) and CLAUSE REFERENCES:
+
+Response Required: Must the recipient respond? If yes:
+
+Response timeframe: [NUMBER] days (e.g., 14 days, not "within 14 days")
+Response clause reference
+Response notice ID
+What response must contain
+
+
+Duration Between Each Step: Specify as [NUMBER] days only
+Subsequent Actions with Durations:
+
+Decision points with timeframes: [NUMBER] days
+Alternative pathways: [NUMBER] days for each path
+Follow-up notices: [NUMBER] days to issue
+Meetings/consultations: [NUMBER] days notice required
+Dispute resolution: [NUMBER] days at each stage
+
+
+Consequences with Time Bars:
+
+Time bar period: [NUMBER] days (if claim barred after this period)
+Deemed acceptance/rejection: [NUMBER] days of no response
+
+
+Loop-backs: Cycle duration in days (NUMBER ONLY)
+
+
+Special attention to notices related to:
+
+Variations/Change Orders
+Claims/Disputes
+Delays/Extensions of Time
+Force Majeure events
+Defects/Non-conformance
+Termination/Suspension
+Payment issues
+Safety incidents
+Site conditions
+Breaches/Defaults
+Insurance claims
+Progress reporting (recurring)
+Monthly/periodic submissions (recurring)
+
+
+Output Format - THREE PARTS:
+
+PART A: Notice Inventory Table
+| Notice ID | Clause | Trigger Event | Giver | Recipient | Days to Give (NUMBER) | Method | Recurring Days (NUMBER) | Content Required |
+PART B: Structured Notice Flow for PlantUML
+For each notice, provide in this EXACT format:
+NOTICE_ID: VAR-01
+CLAUSE: 10.2
+TRIGGER: Discovery of varied work required
+GIVER: Contractor
+RECIPIENT: Principal
+
+TIMELINE:
+Day 0: Trigger event occurs (Clause 10.1)
+Day [X]: Contractor issues Variation Notice (Clause 10.2)
+  |
+  +---> Duration to response: [NUMBER] days (Clause 10.3)
+  |
+Day [X+Y]: Principal must respond (Clause 10.3)
+
+DECISION_BRANCHES:
+Branch A: Approve (Clause 10.3.1)
+  - Duration to implement: [NUMBER] days
+  - Leads to: Work proceeds (Clause 10.4)
+  - Total elapsed: [NUMBER] days
+  
+Branch B: Reject (Clause 10.3.2)
+  - Duration to resubmit: [NUMBER] days
+  - Leads to: VAR-01 (revised) - LOOP
+  - Total elapsed: [NUMBER] days
+  
+Branch C: Request more information (Clause 10.3.3)
+  - Duration to provide info: [NUMBER] days
+  - Leads to: Additional submission (Clause 10.3.4)
+  - Then returns to Day [X] decision
+  - Total elapsed: [NUMBER] days
+
+Branch D: No response (Clause 10.3.5)
+  - After [NUMBER] days: Deemed approved
+  - Leads to: Work proceeds (Clause 10.6)
+  - Total elapsed: [NUMBER] days
+
+TIME_BAR: [NUMBER] days from trigger (Clause 10.7)
+If notice not given within [NUMBER] days, claim is barred.
+
+TOTAL_DURATION:
+Minimum: [NUMBER] days (fastest path)
+Maximum: [NUMBER] days (slowest path with loops)
+Average: [NUMBER] days (typical path)
+PART C: PlantUML Activity Diagram Code
+For the 5 most complex notice chains, provide complete PlantUML code using this structure:
+plantuml@startuml Notice_Flow_VAR01
+title Variation Notice Flow (Clause 10)
+|Contractor|
+start
+:Trigger Event Occurs\n(Clause 10.1);
+note right: Day 0
+
+:Issue Variation Notice\n(Clause 10.2);
+note right
+  Day 7
+  (within 7 days)
+end note
+
+|Principal|
+:Receive Notice\n(Clause 10.3);
+note right: Day 7
+
+if (Response?) then (Approve - Clause 10.3.1)
+  note right: Within 14 days (Day 21)
+  :Work Proceeds\n(Clause 10.4);
+  note right: Duration: 14 days
+  stop
+  
+else (Reject - Clause 10.3.2)
+  note right: Within 14 days (Day 21)
+  |Contractor|
+  :Revise & Resubmit\n(Clause 10.5);
+  note right
+    Within 7 days (Day 28)
+    Duration: 7 days
+  end note
+  detach
+  
+else (More Info - Clause 10.3.3)
+  note right: Within 14 days (Day 21)
+  |Contractor|
+  :Provide Information\n(Clause 10.3.4);
+  note right
+    Within 7 days (Day 28)
+    Duration: 7 days
+  end note
+  |Principal|
+  :Re-assess;
+  detach
+  
+else (No Response - Clause 10.3.5)
+  note right
+    After 14 days (Day 21)
+    Deemed Approved
+    Duration: 14 days
+  end note
+  |Contractor|
+  :Work Proceeds\n(Clause 10.6);
+  stop
+endif
+
+floating note left: TIME BAR: 28 days from trigger\n(Clause 10.7)
+
+@enduml
+Alternative PlantUML Timing Diagram Format:
+plantuml@startuml Notice_Timeline_VAR01
+title Variation Notice Timeline (Days from Trigger)
+
+concise "Contractor" as C
+concise "Principal" as P
+concise "Status" as S
+
+@0
+C is Idle
+P is Idle
+S is "Triggered"
+
+@7
+C is "Notice Issued"
+P is "Notice Received"
+S is "Pending"
+note bottom: Clause 10.2\n7 days elapsed
+
+@21
+C is Waiting
+P is "Decision Required"
+S is "Decision Point"
+note bottom: Clause 10.3\n21 days elapsed\n(14 days for response)
+
+@21
+P is "Approved" #LightGreen
+S is "Approved"
+note bottom: Branch A - Clause 10.3.1
+
+@21
+P is "Rejected" #Pink
+S is "Rejected"
+note bottom: Branch B - Clause 10.3.2
+
+@21
+P is "Deemed Approved" #LightBlue
+S is "Deemed"
+note bottom: Branch D - Clause 10.3.5\n(if no response)
+
+@enduml
+```
+
+**PART D: PlantUML Data Table for Each Notice**
+Provide this structured data that PlantUML can parse:
+```
+NOTICE: VAR-01
+STEPS:
+  1. Trigger | Day: 0 | Party: Event | Clause: 10.1 | Duration_to_next: 7
+  2. Issue Notice | Day: 7 | Party: Contractor | Clause: 10.2 | Duration_to_next: 14
+  3. Decision | Day: 21 | Party: Principal | Clause: 10.3 | Duration_to_next: BRANCH
+BRANCHES:
+  A. Approve | Duration: 14 | End_day: 35 | Clause: 10.3.1
+  B. Reject | Duration: 7 | End_day: 28 | Loop_to: Step_2 | Clause: 10.3.2
+  C. More_Info | Duration: 7 | End_day: 28 | Loop_to: Step_3 | Clause: 10.3.3
+  D. No_Response | Duration: 14 | End_day: 35 | Clause: 10.3.5
+TIME_BAR: 28 | Clause: 10.7
+PART E: Summary Dashboard
+Provide:
+
+Total notices identified: [X]
+Total recurring notices: [X] with frequencies
+Critical timing summary table:
+
+Notice IDMin DaysMax DaysTime Bar DaysCritical?ClauseVAR-01215628YES10.2DELAY-0171414YES15.3
+
+Notices with loops: [List with cycle durations]
+Deemed provisions: [List with deemed timeframes in days]
+Fastest/Slowest notice chains
+
+Duration Standardization Rules:
+Convert all timeframes to NUMBERS (days only):
+
+"Immediately" / "Forthwith" = 0
+"Within X days" = X
+"Within X business days" = X (note if business days)
+"Within X weeks" = [X × 7]
+"Within 1 month" = 30
+"Within X months" = [X × 30]
+"Prior to [event]" = 0 (relative to that event)
+"Reasonable time" = Note as "TBD" + estimate if contract defines
+"As soon as practicable" = "ASAP" + estimate from context
+
+Always express durations as:
+
+Absolute day number from trigger (e.g., "Day 7", "Day 21")
+Duration between events (e.g., "Duration: 14 days")
+Total elapsed time (e.g., "Total: 35 days")

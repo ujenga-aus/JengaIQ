@@ -1,0 +1,141 @@
+Risk Register — MVP spec (build-ready)
+Core columns (keep these)
+
+ID | Category | Risk (Cause → Event → Impact) | Triggers | Owner | Existing Controls | Inherent Likelihood | Inherent Consequence (Cost/Time/Reputation/Zero-Harm) | Current Likelihood | Current Consequence | Current Rating (auto) | Response (avoid/mitigate/transfer/accept OR exploit/enhance/share) | Actions (short) | Action Owner | Due | Cost of Action | Residual Likelihood | Residual Consequence | Residual Rating (auto) | Proximity | Link (WBS/Clause/Doc) | Assumptions/Dependencies | DOA Needed | Status/Trend | Last Review | Next Review
+
+Optional quant fields (toggle per project)
+
+Probability % (for event-type risks)
+
+Cost impact: P10 / P50 / P90 (or min / most-likely / max)
+
+Schedule impact: P50 (days) [use P10/P90 if you have them]
+
+EMV (auto = Prob × Cost_P50)
+
+Contingency bucket
+
+Distributions you’ll support (nothing more)
+
+Use these for severity or for cost/schedule factors. Keep entry simple.
+
+Triangular (a, m, b)
+Use for rough three-point inputs. Bounded. Workshop-friendly.
+
+Beta-PERT (a, m, b; λ=4)
+Use when you want smoother tails on bounded quantities and durations.
+
+Lognormal (set by percentiles, e.g., P50 & P80/P90)
+Use for multiplicative, right-tailed money effects: quantity growth, rate uplift, productivity drag, rework, claims.
+
+Bernoulli × Severity
+Model occurrence separately: Probability % gates the Severity distribution above.
+
+Fixed value
+When impact is effectively certain or contractually capped.
+
+Rules of thumb
+
+Costs, days ≥ 0 → truncate where needed.
+
+Bounded percentages → PERT on % then apply to base.
+
+Keep Probability separate from Severity.
+
+Correlate what co-moves (e.g., productivity across tasks) via rank-correlation or shared drivers.
+
+Validate against SME intuition with P10/P50/P90 spot checks.
+
+RCE without clutter (how to encode controls)
+
+Store RCE as an attribute of Existing Controls: Effective / Generally sound / Improve.
+
+Use it to transform Inherent → Current (cap best-case reduction when RCE = “Improve”).
+
+Don’t add another grid column for an “RCE rating.” Show RCE in the detail pane.
+
+Escalation + DOA
+
+Maintain a single rules table keyed by heat-map cell or band (A–D):
+
+Escalation owner (PM, GM, CEO)
+
+Review frequency
+
+DOA role required to accept residual risk
+
+SLA for action closure
+
+The UI reads this to show the “who signs off” banner on each risk.
+
+Calculations (defendable and simple)
+
+Consequence = max of selected dimensions (Cost/Time/Reputation/Zero-Harm), unless you run multi-criteria.
+
+Rating score = Likelihood (1–5) × Consequence (1–6).
+
+Band = map score → A/B/C/D via matrix.
+
+EMV (if quant on) = Probability % × Cost_P50.
+
+Portfolio: sum EMV by project/bucket; list Top N by EMV and by “near-term” proximity.
+
+Data model (tables you actually need)
+
+risks: one row per risk/opportunity (all MVP columns + project_id).
+
+risk_actions: id, risk_id, description, owner, due, cost, status, date_closed.
+
+risk_reviews: id, risk_id, reviewer, notes, date, next_review.
+
+attachments: id, risk_id, filename, link, uploaded_by, date.
+
+scales: likelihood_scale, consequence_scales (project-level params).
+
+heatmap_matrix: score → color/letter band, priority.
+
+escalation_rules: band → approver role, review cadence, DOA, SLA.
+
+quant_settings (optional): correlation groups, simulation runs, toggles.
+
+UI that won’t annoy users
+
+List view with filters: owner, band, proximity, bucket, open actions.
+
+Detail drawer: risk statement, controls + RCE, links, assumptions.
+
+Actions tab: its own table and completion meter.
+
+Heat map: click cell to filter.
+
+Dashboard: open risks by band, top 10 by EMV (if quant on), overdue actions, review cadence compliance.
+
+Quant mode toggle per project: when off, hide P10/P50/P90 fields and EMV.
+
+Monte Carlo settings (when Quant mode is on)
+
+Runs: 5,000 is fine for project-level; 10,000 for portfolios.
+
+Inputs: Triangular/PERT/Lognormal + Bernoulli gates only.
+
+Correlation: allow simple group tags (e.g., “Productivity”) with a single rank-corr coefficient per group.
+
+Outputs: P10/P50/P90 for cost and days; tornado for top drivers; EMV summary by bucket.
+
+Migration from current sheets/app
+
+Map your existing Likelihood/Consequence scales into scales once per project.
+
+Convert RCE notes into the Existing Controls field; drop any separate RCE score box.
+
+Move escalation tables into escalation_rules keyed by band.
+
+Keep tornado/percentile visuals, but drive them from the quant fields, not pasted charts.
+
+What you get
+
+A lean register that still satisfies ISO 31000/PMBOK expectations.
+
+Clear ownership, DOA, and an audit trail.
+
+Optional quant that actually drives contingency and sensitivity when needed—without clutter when it isn’t.

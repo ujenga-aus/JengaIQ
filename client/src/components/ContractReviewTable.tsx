@@ -2147,7 +2147,7 @@ export function ContractReviewTable({
                                     }
                                     className={
                                       calculatedStatus.toLowerCase() === 'approved' 
-                                        ? 'capitalize font-bold text-green-700 dark:text-green-400' 
+                                        ? 'capitalize font-bold' 
                                         : calculatedStatus.toLowerCase() === 'pending'
                                         ? 'capitalize text-orange-700 dark:text-orange-400'
                                         : 'capitalize'

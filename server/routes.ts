@@ -1128,19 +1128,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Start automatic metadata extraction in the background if file was uploaded
       if (file && clientContractFileKey) {
         console.log(`[ContractMetadata] Starting automatic extraction for revision ${newRevision.id}`);
-        // Fire and forget - don't await this
-        (async () => {
+        // Fire and forget with proper error handling
+        void (async () => {
           try {
             await extractAndSaveContractMetadata(newRevision.id);
             console.log(`[ContractMetadata] Automatic extraction completed for revision ${newRevision.id}`);
           } catch (error) {
             console.error(`[ContractMetadata] Automatic extraction failed for revision ${newRevision.id}:`, error);
           }
-        })();
+        })().catch(error => {
+          console.error(`[ContractMetadata] Unexpected error in background task:`, error);
+        });
       }
       
       // Start contract parsing in the background
-      (async () => {
+      void (async () => {
         try {
           const { processContractRevision } = await import('./contractParsingPipeline');
           
@@ -1179,7 +1181,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (error) {
           console.error(`[ContractParsing] Failed for revision ${newRevision.id}:`, error);
         }
-      })();
+      })().catch(error => {
+        console.error(`[ContractParsing] Unexpected error in background task:`, error);
+      });
       
       res.json({ success: true, revision: newRevision });
     } catch (error) {

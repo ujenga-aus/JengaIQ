@@ -2181,7 +2181,11 @@ export function ContractReviewTable({
                                                   approval.status.toLowerCase() === 'approved' ? 'default' : 
                                                   approval.status.toLowerCase() === 'rejected' ? 'destructive' : 'secondary'
                                                 }
-                                                className="capitalize text-xs shrink-0"
+                                                className={`capitalize text-xs shrink-0 ${
+                                                  approval.status.toLowerCase() === 'approved' 
+                                                    ? 'text-white dark:text-white' 
+                                                    : ''
+                                                }`}
                                               >
                                                 {approval.status}
                                               </Badge>

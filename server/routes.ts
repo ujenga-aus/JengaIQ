@@ -726,35 +726,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(contractReviewRevisionRows.revisionId, revisionId))
         .orderBy(contractReviewRevisionRows.rowIndex);
       
-      // For each revision row, get snapshot cells, revision cells, and latest approval
-      const rows = await Promise.all(revisionRows.map(async (revRow) => {
-        // Get snapshot cells (non-editable template columns)
-        const snapshotCells = await db
-          .select()
-          .from(contractReviewSnapshotCells)
-          .where(eq(contractReviewSnapshotCells.snapshotRowId, revRow.snapshotRowId))
-          .orderBy(contractReviewSnapshotCells.orderIndex);
-        
-        // Get revision cells (editable + review columns)
-        const revisionCells = await db
-          .select()
-          .from(contractReviewRevisionCells)
-          .where(eq(contractReviewRevisionCells.revisionRowId, revRow.id));
-        
-        // Get ALL approvals for this row (ordered newest to oldest)
-        const allApprovals = await db
-          .select()
-          .from(contractReviewApprovals)
-          .where(eq(contractReviewApprovals.revisionRowId, revRow.id))
-          .orderBy(desc(contractReviewApprovals.createdAt));
-        
-        return {
-          id: revRow.id,
-          rowIndex: revRow.rowIndex,
-          snapshotCells,
-          revisionCells,
-          approvals: allApprovals, // All approvals, not just latest
-        };
+      if (revisionRows.length === 0) {
+        return res.json([]);
+      }
+      
+      // PERFORMANCE FIX: Batch fetch all cells and approvals upfront (eliminates N+1)
+      const revRowIds = revisionRows.map(r => r.id);
+      const snapshotRowIds = revisionRows.map(r => r.snapshotRowId);
+      
+      // Fetch all snapshot cells in one query
+      const { inArray } = await import('drizzle-orm');
+      const allSnapshotCells = await db
+        .select()
+        .from(contractReviewSnapshotCells)
+        .where(inArray(contractReviewSnapshotCells.snapshotRowId, snapshotRowIds))
+        .orderBy(contractReviewSnapshotCells.orderIndex);
+      
+      // Fetch all revision cells in one query
+      const allRevisionCells = await db
+        .select()
+        .from(contractReviewRevisionCells)
+        .where(inArray(contractReviewRevisionCells.revisionRowId, revRowIds));
+      
+      // Fetch all approvals in one query
+      const allApprovals = await db
+        .select()
+        .from(contractReviewApprovals)
+        .where(inArray(contractReviewApprovals.revisionRowId, revRowIds))
+        .orderBy(desc(contractReviewApprovals.createdAt));
+      
+      // Group cells and approvals by row ID
+      const snapshotCellsByRow = new Map<string, typeof allSnapshotCells>();
+      for (const cell of allSnapshotCells) {
+        if (!snapshotCellsByRow.has(cell.snapshotRowId)) {
+          snapshotCellsByRow.set(cell.snapshotRowId, []);
+        }
+        snapshotCellsByRow.get(cell.snapshotRowId)!.push(cell);
+      }
+      
+      const revisionCellsByRow = new Map<string, typeof allRevisionCells>();
+      for (const cell of allRevisionCells) {
+        if (!revisionCellsByRow.has(cell.revisionRowId)) {
+          revisionCellsByRow.set(cell.revisionRowId, []);
+        }
+        revisionCellsByRow.get(cell.revisionRowId)!.push(cell);
+      }
+      
+      const approvalsByRow = new Map<string, typeof allApprovals>();
+      for (const approval of allApprovals) {
+        if (!approvalsByRow.has(approval.revisionRowId)) {
+          approvalsByRow.set(approval.revisionRowId, []);
+        }
+        approvalsByRow.get(approval.revisionRowId)!.push(approval);
+      }
+      
+      // Assemble rows with their cells and approvals
+      const rows = revisionRows.map(revRow => ({
+        id: revRow.id,
+        rowIndex: revRow.rowIndex,
+        snapshotCells: snapshotCellsByRow.get(revRow.snapshotRowId) || [],
+        revisionCells: revisionCellsByRow.get(revRow.id) || [],
+        approvals: approvalsByRow.get(revRow.id) || [],
       }));
       
       res.json(rows);

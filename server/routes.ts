@@ -92,7 +92,8 @@ import {
   quoteCategories,
   quotes,
   userQuoteProgress,
-  insertUserQuoteProgressSchema
+  insertUserQuoteProgressSchema,
+  extendedToc
 } from "@shared/schema";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import multer from "multer";
@@ -1496,6 +1497,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching TOC chunk:', error);
       res.status(500).json({ error: 'Failed to fetch TOC chunk' });
+    }
+  });
+
+  // Get Extended TOC for clause heading tooltips (all clause headings, not just PDF TOC)
+  app.get('/api/contract-review/revisions/:revisionId/extended-toc', isAuthenticated, async (req, res) => {
+    try {
+      const { revisionId } = req.params;
+      
+      // Get revision to find parsedAssetId
+      const [revision] = await db
+        .select()
+        .from(contractReviewDocuments)
+        .where(eq(contractReviewDocuments.id, revisionId))
+        .limit(1);
+      
+      if (!revision) {
+        return res.status(404).json({ error: 'Revision not found' });
+      }
+      
+      if (!revision.parsedAssetId) {
+        return res.status(404).json({ 
+          error: 'Extended TOC not available',
+          message: 'Contract has not been parsed yet'
+        });
+      }
+      
+      // Fetch extended TOC entries, sorted by orderIndex for hierarchical display
+      const rawEntries = await db
+        .select({
+          clauseNumber: extendedToc.clauseNumber,
+          description: extendedToc.description,
+          pageNo: extendedToc.pageNo,
+        })
+        .from(extendedToc)
+        .where(eq(extendedToc.parsedAssetId, revision.parsedAssetId))
+        .orderBy(extendedToc.orderIndex);
+      
+      // Normalize clause numbers (trim whitespace, consistent format)
+      const entries = rawEntries.map(entry => ({
+        ...entry,
+        clauseNumber: entry.clauseNumber.trim(),
+      }));
+      
+      // Set cache headers (extended TOC doesn't change after parsing)
+      const etag = `"extended-toc-${revision.parsedAssetId}"`;
+      res.set('ETag', etag);
+      res.set('Cache-Control', 'private, max-age=3600'); // 1 hour
+      
+      // Check if client has cached version
+      if (req.headers['if-none-match'] === etag) {
+        return res.status(304).send();
+      }
+      
+      res.json({
+        entries,
+        parsedAssetId: revision.parsedAssetId,
+      });
+    } catch (error) {
+      console.error('Error fetching extended TOC:', error);
+      res.status(500).json({ error: 'Failed to fetch extended TOC' });
     }
   });
 

@@ -144,10 +144,37 @@ export function ContractViewerDialog({
     retry: false, // Don't retry on access errors
   });
 
-  // Parse TOC into clause number → heading map
+  // Fetch Extended TOC for comprehensive clause tooltips
+  const { data: extendedTocData } = useQuery<{
+    entries: Array<{ clauseNumber: string; description: string; pageNo: number }>;
+    parsedAssetId: string;
+  }>({
+    queryKey: ['/api/contract-review/revisions', revisionId, 'extended-toc'],
+    enabled: open && !!revisionId && !isMobile,
+    retry: false,
+  });
+
+  // Build comprehensive clause map from both PDF TOC and Extended TOC
   const clauseMap = useMemo(() => {
-    return parseTOC(tocData?.tocText || '');
-  }, [tocData]);
+    const map = new Map<string, string>();
+    
+    // First, add entries from PDF TOC (may have some major sections)
+    const pdfTocMap = parseTOC(tocData?.tocText || '');
+    pdfTocMap.forEach((heading, clauseNumber) => {
+      // Normalize: trim whitespace for consistent matching
+      map.set(clauseNumber.trim(), heading);
+    });
+    
+    // Then, add/overwrite with Extended TOC (has ALL clause headings from Claude)
+    // Extended TOC is already normalized on the backend
+    if (extendedTocData?.entries) {
+      extendedTocData.entries.forEach(entry => {
+        map.set(entry.clauseNumber, entry.description);
+      });
+    }
+    
+    return map;
+  }, [tocData, extendedTocData]);
 
   // Initialize clause tooltip system (desktop only)
   const { tooltip, registerPageLayer } = useClauseTooltips({

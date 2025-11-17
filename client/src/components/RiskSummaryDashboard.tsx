@@ -163,8 +163,9 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
             <CardTitle className="text-xs font-bold">Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={histogramData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+            <div className="w-full h-[220px]">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={histogramData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis 
                   dataKey="binMid" 
@@ -193,6 +194,7 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
                 />
               </BarChart>
             </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
@@ -203,8 +205,9 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
           </CardHeader>
           <CardContent className="px-[15px]">
             {tornadoData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart 
+              <div className="w-full h-[220px]">
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart 
                   data={tornadoData} 
                   layout="vertical"
                   margin={{ top: 5, right: 15, left: 5, bottom: 5 }}
@@ -260,6 +263,7 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
                   />
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             ) : (
               <div className="flex items-center justify-center h-[220px] text-xs font-medium text-muted-foreground">
                 <div className="flex flex-col items-center gap-2">

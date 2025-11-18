@@ -763,7 +763,7 @@ export default function EDiscovery() {
                   <div
                     key={email.id}
                     className={cn(
-                      "flex items-center gap-3 px-4 cursor-pointer border-b text-sm transition-colors",
+                      "flex items-center gap-3 px-4 cursor-pointer border-b text-xs transition-colors",
                       selectedEmail === email.id ? "bg-accent" : "hover-elevate"
                     )}
                     style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
@@ -785,7 +785,7 @@ export default function EDiscovery() {
                     <Separator orientation="vertical" className="h-4" />
                     
                     {/* Subject */}
-                    <div className="flex-1 truncate font-medium">
+                    <div className="flex-1 truncate">
                       {email.subject || "(No Subject)"}
                     </div>
 

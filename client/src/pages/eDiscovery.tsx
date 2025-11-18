@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,11 +18,19 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Upload, Search, Mail, Paperclip, Clock, CheckCircle2, XCircle, 
   Loader2, FileText, RefreshCw, Download, X, Sparkles, Tag, Plus,
-  AlertCircle, Calendar as CalendarIcon
+  AlertCircle, Calendar as CalendarIcon, GripHorizontal
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
@@ -94,6 +102,80 @@ interface PSTFile {
   id: string;
 }
 
+// Resizable Table Header Component
+function ResizableTableHead({
+  columnId,
+  currentWidth,
+  minWidth,
+  onResize,
+  className,
+  children,
+}: {
+  columnId: string;
+  currentWidth: number;
+  minWidth: number;
+  onResize: (columnId: string, width: number) => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const thRef = useRef<HTMLTableCellElement>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = currentWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.max(minWidth, startWidth + delta);
+      onResize(columnId, newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  return (
+    <TableHead
+      ref={thRef}
+      className={`${className || ''} relative select-none font-normal`}
+    >
+      <div className="pr-2">
+        {children}
+      </div>
+      <div
+        className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${
+          isResizing ? 'bg-blue-500' : ''
+        }`}
+        onMouseDown={handleMouseDown}
+      >
+        <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100">
+          <GripHorizontal className="h-3 w-3 text-blue-500" />
+        </div>
+      </div>
+    </TableHead>
+  );
+}
+
+// Storage key for column widths
+const STORAGE_KEY_EDISCOVERY_COLUMN_WIDTHS = 'ediscovery-column-widths';
+
+// Default column widths
+const DEFAULT_COLUMN_WIDTHS = {
+  date: 120,
+  from: 250,
+  subject: 400,
+  indicators: 120,
+};
+
 export default function EDiscovery() {
   const { toast } = useToast();
   const { selectedProject } = useProject();
@@ -109,6 +191,29 @@ export default function EDiscovery() {
   // Selection state
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
   const [newTagLabel, setNewTagLabel] = useState("");
+
+  // Column widths state
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(DEFAULT_COLUMN_WIDTHS);
+
+  // Load column widths from localStorage on mount
+  useEffect(() => {
+    const storedWidths = localStorage.getItem(STORAGE_KEY_EDISCOVERY_COLUMN_WIDTHS);
+    if (storedWidths) {
+      try {
+        const parsed = JSON.parse(storedWidths);
+        setColumnWidths({ ...DEFAULT_COLUMN_WIDTHS, ...parsed });
+      } catch (e) {
+        console.error('Failed to parse stored eDiscovery column widths:', e);
+      }
+    }
+  }, []);
+
+  // Save column width function
+  const saveColumnWidth = (columnId: string, width: number) => {
+    const newWidths = { ...columnWidths, [columnId]: width };
+    setColumnWidths(newWidths);
+    localStorage.setItem(STORAGE_KEY_EDISCOVERY_COLUMN_WIDTHS, JSON.stringify(newWidths));
+  };
 
   // Fetch uploads for current project (with auto-refresh for processing uploads)
   const { data: allUploads } = useQuery<EdiscoveryUpload[]>({
@@ -737,72 +842,112 @@ export default function EDiscovery() {
 
             {/* Results List */}
             <ScrollArea className="flex-1">
-              <div className="flex flex-col">
-                {isLoadingAllEmails && (
-                  <div className="text-center py-12">
-                    <Loader2 className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3 animate-spin" />
-                    <p className="text-muted-foreground">Loading emails...</p>
-                  </div>
-                )}
+              {isLoadingAllEmails && (
+                <div className="text-center py-12">
+                  <Loader2 className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3 animate-spin" />
+                  <p className="text-muted-foreground">Loading emails...</p>
+                </div>
+              )}
 
-                {!isLoadingAllEmails && !aiSearchResults && allEmails && allEmails.items.length === 0 && (
-                  <div className="text-center py-12">
-                    <Mail className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                    <p className="text-muted-foreground">No emails found. Upload PST files to get started.</p>
-                  </div>
-                )}
+              {!isLoadingAllEmails && !aiSearchResults && allEmails && allEmails.items.length === 0 && (
+                <div className="text-center py-12">
+                  <Mail className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                  <p className="text-muted-foreground">No emails found. Upload PST files to get started.</p>
+                </div>
+              )}
 
-                {!isLoadingAllEmails && aiSearchResults && aiSearchResults.items.length === 0 && (
-                  <div className="text-center py-12">
-                    <XCircle className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                    <p className="text-muted-foreground">No emails found matching your AI search</p>
-                  </div>
-                )}
+              {!isLoadingAllEmails && aiSearchResults && aiSearchResults.items.length === 0 && (
+                <div className="text-center py-12">
+                  <XCircle className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                  <p className="text-muted-foreground">No emails found matching your AI search</p>
+                </div>
+              )}
 
-                {(aiSearchResults?.items || allEmails?.items || []).map((email) => (
-                  <div
-                    key={email.id}
-                    className={cn(
-                      "flex items-center gap-3 px-4 cursor-pointer border-b text-xs transition-colors",
-                      selectedEmail === email.id ? "bg-accent" : "hover-elevate"
-                    )}
-                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
-                    onClick={() => setSelectedEmail(email.id)}
-                    data-testid={`email-result-${email.id}`}
-                  >
-                    {/* Date */}
-                    <div className="flex-shrink-0 w-24 text-muted-foreground">
-                      {email.sentAt ? format(new Date(email.sentAt), "dd MMM yyyy") : "No date"}
-                    </div>
-                    
-                    <Separator orientation="vertical" className="h-4" />
-                    
-                    {/* From */}
-                    <div className="flex-shrink-0 w-48 truncate text-muted-foreground">
-                      {email.fromAddress || "Unknown"}
-                    </div>
-                    
-                    <Separator orientation="vertical" className="h-4" />
-                    
-                    {/* Subject */}
-                    <div className="flex-1 truncate">
-                      {email.subject || "(No Subject)"}
-                    </div>
-
-                    {/* Optional indicators */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {email.hasAttachments && (
-                        <Paperclip className="h-3 w-3 text-muted-foreground" />
-                      )}
-                      {email.similarity && (
-                        <Badge variant="secondary" className="text-xs">
-                          {Math.round(email.similarity * 100)}%
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {(aiSearchResults?.items || allEmails?.items || []).length > 0 && (
+                <Table className="text-xs">
+                  <colgroup>
+                    <col style={{ width: `${columnWidths.date}px` }} />
+                    <col style={{ width: `${columnWidths.from}px` }} />
+                    <col style={{ width: `${columnWidths.subject}px` }} />
+                    <col style={{ width: `${columnWidths.indicators}px` }} />
+                  </colgroup>
+                  <TableHeader className="sticky top-0 bg-background z-10">
+                    <TableRow>
+                      <ResizableTableHead
+                        columnId="date"
+                        currentWidth={columnWidths.date}
+                        minWidth={80}
+                        onResize={saveColumnWidth}
+                        className="text-xs text-muted-foreground !font-normal"
+                      >
+                        Date
+                      </ResizableTableHead>
+                      <ResizableTableHead
+                        columnId="from"
+                        currentWidth={columnWidths.from}
+                        minWidth={150}
+                        onResize={saveColumnWidth}
+                        className="text-xs text-muted-foreground !font-normal"
+                      >
+                        From
+                      </ResizableTableHead>
+                      <ResizableTableHead
+                        columnId="subject"
+                        currentWidth={columnWidths.subject}
+                        minWidth={200}
+                        onResize={saveColumnWidth}
+                        className="text-xs text-muted-foreground !font-normal"
+                      >
+                        Subject
+                      </ResizableTableHead>
+                      <ResizableTableHead
+                        columnId="indicators"
+                        currentWidth={columnWidths.indicators}
+                        minWidth={80}
+                        onResize={saveColumnWidth}
+                        className="text-xs text-muted-foreground !font-normal"
+                      >
+                        Info
+                      </ResizableTableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(aiSearchResults?.items || allEmails?.items || []).map((email) => (
+                      <TableRow
+                        key={email.id}
+                        className={cn(
+                          "cursor-pointer text-xs transition-colors",
+                          selectedEmail === email.id ? "bg-accent" : "hover-elevate"
+                        )}
+                        onClick={() => setSelectedEmail(email.id)}
+                        data-testid={`email-result-${email.id}`}
+                      >
+                        <TableCell className="text-muted-foreground">
+                          {email.sentAt ? format(new Date(email.sentAt), "dd MMM yyyy") : "No date"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground truncate">
+                          {email.fromAddress || "Unknown"}
+                        </TableCell>
+                        <TableCell className="truncate">
+                          {email.subject || "(No Subject)"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {email.hasAttachments && (
+                              <Paperclip className="h-3 w-3 text-muted-foreground" />
+                            )}
+                            {email.similarity && (
+                              <Badge variant="secondary" className="text-xs">
+                                {Math.round(email.similarity * 100)}%
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </ScrollArea>
           </div>
         </ResizablePanel>

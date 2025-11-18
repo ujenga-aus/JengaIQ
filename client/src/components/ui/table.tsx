@@ -82,8 +82,8 @@ const TableHead = React.forwardRef<
       className
     )}
     style={{ 
-      paddingTop: 'var(--row-py)', 
-      paddingBottom: 'var(--row-py)',
+      paddingTop: 'var(--grid-cell-py)', 
+      paddingBottom: 'var(--grid-cell-py)',
       color: 'hsl(var(--table-header-fg))'
     }}
     {...props}
@@ -98,7 +98,7 @@ const TableCell = React.forwardRef<
   <td
     ref={ref}
     className={cn("px-4 align-middle [&:has([role=checkbox])]:pr-0", className)}
-    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
     {...props}
   />
 ))

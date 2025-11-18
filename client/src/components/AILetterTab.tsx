@@ -1045,7 +1045,7 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
                               {/* PDF Display */}
                               <div 
                                 ref={previewLetterScrollRef}
-                                className={`flex-1 overflow-x-auto overflow-y-auto bg-muted/20 rounded-lg [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-md [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/50 transition-opacity ${isPreviewPdfLoading ? 'opacity-50' : 'opacity-100'}`}
+                                className="flex-1 overflow-x-auto overflow-y-auto bg-muted/20 rounded-lg [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:bg-muted [&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-thumb]:rounded-md [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/50"
                                 style={{ 
                                   cursor: isPreviewDragging ? 'grabbing' : 'grab',
                                   scrollbarWidth: 'thin',

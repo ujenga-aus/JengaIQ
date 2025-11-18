@@ -328,7 +328,7 @@ export default function ProjectDetail() {
           <BOQTab />
         </TabsContent>
 
-        <TabsContent value="ediscovery">
+        <TabsContent value="ediscovery" className="h-full overflow-hidden data-[state=inactive]:hidden">
           <EDiscovery />
         </TabsContent>
 

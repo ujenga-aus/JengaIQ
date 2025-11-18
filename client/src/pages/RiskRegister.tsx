@@ -3048,28 +3048,30 @@ export default function RiskRegister() {
         </DialogContent>
       </Dialog>
 
-        <TabsContent value="reports" className="space-y-4 mt-0">
-          {selectedProject && currentRevision ? (
-            <MonteCarloReportDashboard
-              projectId={selectedProject.id}
-              revisionId={currentRevision.id}
-              onRiskClick={(riskId) => {
-                setSelectedRiskId(riskId);
-                setOpenedFromReports(true);
-              }}
-              autoRunTrigger={monteCarloRerunTrigger}
-            />
-          ) : (
-            <Card className="p-6">
-              <div className="text-center py-12">
-                <BarChart3 className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <h3 className="mb-2">Risk Reports</h3>
-                <p className="text-sm text-muted-foreground">
-                  Please select a project to view Monte Carlo simulation reports
-                </p>
-              </div>
-            </Card>
-          )}
+        <TabsContent value="reports" className="mt-0 overflow-auto">
+          <div className="space-y-4 pb-6">
+            {selectedProject && currentRevision ? (
+              <MonteCarloReportDashboard
+                projectId={selectedProject.id}
+                revisionId={currentRevision.id}
+                onRiskClick={(riskId) => {
+                  setSelectedRiskId(riskId);
+                  setOpenedFromReports(true);
+                }}
+                autoRunTrigger={monteCarloRerunTrigger}
+              />
+            ) : (
+              <Card className="p-6">
+                <div className="text-center py-12">
+                  <BarChart3 className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                  <h3 className="mb-2">Risk Reports</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Please select a project to view Monte Carlo simulation reports
+                  </p>
+                </div>
+              </Card>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-4 mt-0">

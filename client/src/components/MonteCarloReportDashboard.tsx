@@ -291,9 +291,9 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header with Settings and Run Button */}
-      <Card className="p-4 sm:p-6">
+      <Card className="p-3 sm:p-4">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 sm:gap-6">
           <div className="flex-shrink-0">
             <h2 className="text-xl sm:text-2xl font-bold">Monte Carlo Simulation Report</h2>
@@ -397,87 +397,85 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
       ) : results ? (
         <>
           {/* Summary, Probability Bands, and Histogram in 3-column layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-[25%_25%_50%] gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[25%_25%_50%] gap-3">
             {/* Summary Statistics */}
-            <Card className="p-6">
-              <h3 className="font-semibold mb-4">A. Summary Results - Probabilistic Outcomes</h3>
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3 text-sm">A. Summary Results</h3>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                    <TableHead className="text-right">Variance from Base</TableHead>
+                  <TableRow className="text-xs">
+                    <TableHead className="py-2">Item</TableHead>
+                    <TableHead className="text-right py-2">Value</TableHead>
+                    <TableHead className="text-right py-2">Variance</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                <TableBody className="text-xs">
                   <TableRow>
-                    <TableCell className="font-medium">P10</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(results.p10)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(results.p10 - results.base)}</TableCell>
+                    <TableCell className="font-medium py-1.5">P10</TableCell>
+                    <TableCell className="text-right tabular-nums py-1.5">{formatCurrency(results.p10)}</TableCell>
+                    <TableCell className="text-right tabular-nums py-1.5">{formatCurrency(results.p10 - results.base)}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="font-medium">P50 (Median)</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(results.p50)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(results.p50 - results.base)}</TableCell>
+                    <TableCell className="font-medium py-1.5">P50</TableCell>
+                    <TableCell className="text-right tabular-nums py-1.5">{formatCurrency(results.p50)}</TableCell>
+                    <TableCell className="text-right tabular-nums py-1.5">{formatCurrency(results.p50 - results.base)}</TableCell>
                   </TableRow>
                   <TableRow className="bg-primary/5">
-                    <TableCell className="font-bold">
-                      P{results.targetPercentile} (Recommended)
+                    <TableCell className="font-bold py-1.5">
+                      P{results.targetPercentile}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums font-bold">{formatCurrency(results.targetValue)}</TableCell>
-                    <TableCell className="text-right tabular-nums font-bold">{formatCurrency(results.targetValue - results.base)}</TableCell>
+                    <TableCell className="text-right tabular-nums font-bold py-1.5">{formatCurrency(results.targetValue)}</TableCell>
+                    <TableCell className="text-right tabular-nums font-bold py-1.5">{formatCurrency(results.targetValue - results.base)}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="font-medium">P90</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(results.p90)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatCurrency(results.p90 - results.base)}</TableCell>
+                    <TableCell className="font-medium py-1.5">P90</TableCell>
+                    <TableCell className="text-right tabular-nums py-1.5">{formatCurrency(results.p90)}</TableCell>
+                    <TableCell className="text-right tabular-nums py-1.5">{formatCurrency(results.p90 - results.base)}</TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
 
-              <div className="mt-6 space-y-2 text-sm">
-                <div className="grid grid-cols-[1fr_auto_auto] gap-4">
-                  <span className="text-muted-foreground">Base (Deterministic):</span>
-                  <span className="font-medium tabular-nums text-right">{formatCurrency(results.base)}</span>
-                  <span></span>
+              <div className="mt-4 space-y-1 text-xs">
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <span className="text-muted-foreground">Base:</span>
+                  <span className="font-medium tabular-nums">{formatCurrency(results.base)}</span>
                 </div>
-                <div className="grid grid-cols-[1fr_auto_auto] gap-4">
+                <div className="grid grid-cols-[1fr_auto] gap-2">
                   <span className="text-muted-foreground">Mean:</span>
-                  <span className="font-medium tabular-nums text-right">{formatCurrency(results.mean)}</span>
-                  <span></span>
+                  <span className="font-medium tabular-nums">{formatCurrency(results.mean)}</span>
                 </div>
-                <div className="grid grid-cols-[1fr_auto_auto] gap-4">
-                  <span className="text-muted-foreground">Spread (P90-P10):</span>
-                  <span className="font-medium tabular-nums text-right">{formatCurrency(results.p90 - results.p10)}</span>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <span className="text-muted-foreground">Spread:</span>
+                  <span className="font-medium tabular-nums">{formatCurrency(results.p90 - results.p10)}</span>
                   <span></span>
                 </div>
               </div>
             </Card>
 
             {/* Probability Bands */}
-            <Card className="p-6">
-              <h3 className="font-semibold mb-4">Probability Bands</h3>
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3 text-sm">Probability Bands</h3>
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Prob.</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                    <TableHead className="text-right">Variance from Base</TableHead>
+                  <TableRow className="text-xs">
+                    <TableHead className="py-2">P</TableHead>
+                    <TableHead className="text-right py-2">Value</TableHead>
+                    <TableHead className="text-right py-2">Var</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                <TableBody className="text-xs">
                   {results.percentileTable.map((row) => {
                     const isTargetPercentile = row.percentile === results.targetPercentile;
                     return (
                       <TableRow 
                         key={row.percentile}
-                        className={isTargetPercentile ? "bg-purple-500/20 dark:bg-purple-500/30 font-semibold" : ""}
+                        className={isTargetPercentile ? "bg-purple-500/20 dark:bg-purple-500/30" : ""}
                       >
-                        <TableCell className={isTargetPercentile ? "font-bold" : "font-medium"}>
-                          P{row.percentile}
+                        <TableCell className={`py-1 ${isTargetPercentile ? "font-bold" : "font-medium"}`}>
+                          {row.percentile}
                         </TableCell>
-                        <TableCell className="text-right">{formatCurrency(row.value)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(row.varianceFromBase)}</TableCell>
+                        <TableCell className="text-right py-1">{formatCurrency(row.value)}</TableCell>
+                        <TableCell className="text-right py-1">{formatCurrency(row.varianceFromBase)}</TableCell>
                       </TableRow>
                     );
                   })}
@@ -486,9 +484,9 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             </Card>
 
             {/* Frequency Distribution Histogram */}
-            <Card className="p-6">
-              <h3 className="font-semibold mb-4">B. Frequency Distribution</h3>
-              <div className="w-full h-[400px] min-h-[400px] relative">
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3 text-sm">B. Frequency Distribution</h3>
+              <div className="w-full h-[220px] relative">
                 <ResponsiveContainer width="99%" height="100%">
                   <BarChart data={histogramData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -551,17 +549,14 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
           </div>
 
           {/* Tornado Chart (D) and S-Curve (C) - Side by Side */}
-          <div className="grid grid-cols-1 lg:grid-cols-[50%_50%] gap-4 sm:gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[50%_50%] gap-3">
             {/* Tornado Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Top Risk Drivers</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Top drivers of output uncertainty (click a risk to view details)
-                </p>
-                <div className="w-full h-[400px] min-h-[400px] relative">
+            <Card className="p-4">
+              <h3 className="font-semibold mb-2 text-sm">Top Risk Drivers</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Click a risk to view details
+              </p>
+              <div className="w-full h-[220px] relative">
                   <ResponsiveContainer width="99%" height="100%">
                     <BarChart 
                   data={tornadoData} 
@@ -603,14 +598,13 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   />
                 </BarChart>
               </ResponsiveContainer>
-                </div>
-              </CardContent>
+              </div>
             </Card>
 
             {/* S-Curve (Exceedance Curve) */}
-            <Card className="p-6">
-              <h3 className="font-semibold mb-4">C. Exceedance Curve - Probability of Exceeding Thresholds</h3>
-              <div className="w-full h-[400px] min-h-[400px] relative">
+            <Card className="p-4">
+              <h3 className="font-semibold mb-3 text-sm">C. Exceedance Curve</h3>
+              <div className="w-full h-[220px] relative">
                 <ResponsiveContainer width="99%" height="100%">
                   <LineChart data={sCurveData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -657,8 +651,8 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
           </div>
 
           {/* Simulation Info */}
-          <Card className="p-4 sm:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-6 text-xs sm:text-sm text-muted-foreground">
+          <Card className="p-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 text-xs text-muted-foreground">
               <span>
                 Iterations: <strong className="text-foreground">{results.settings.iterations.toLocaleString()}</strong>
               </span>

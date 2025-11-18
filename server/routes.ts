@@ -95,7 +95,7 @@ import {
   insertUserQuoteProgressSchema,
   extendedToc
 } from "@shared/schema";
-import { eq, and, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, asc, isNull, sql } from "drizzle-orm";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -8127,6 +8127,7 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
     try {
       const user = req.user as any;
       const {
+        projectId,
         q = '',
         from,
         to,
@@ -8138,10 +8139,17 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
         offset = '0',
       } = req.query;
 
-      const { ediscoveryEmails } = await import('@shared/schema');
+      const { ediscoveryEmails, ediscoveryUploads } = await import('@shared/schema');
+
+      if (!projectId) {
+        return res.status(400).json({ error: 'projectId is required' });
+      }
 
       // Build query conditions
-      const conditions: any[] = [eq(ediscoveryEmails.companyId, user.companyId)];
+      const conditions: any[] = [
+        eq(ediscoveryEmails.companyId, user.companyId),
+        eq(ediscoveryUploads.projectId, String(projectId))
+      ];
 
       if (from) {
         conditions.push(eq(ediscoveryEmails.fromAddress, String(from).toLowerCase()));
@@ -8157,24 +8165,9 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
 
       if (hasAttachments === 'true') {
         conditions.push(eq(ediscoveryEmails.hasAttachments, true));
+      } else if (hasAttachments === 'false') {
+        conditions.push(eq(ediscoveryEmails.hasAttachments, false));
       }
-
-      // Simple keyword search for now (can enhance with vector search later)
-      let query = db
-        .select({
-          id: ediscoveryEmails.id,
-          subject: ediscoveryEmails.subject,
-          fromAddress: ediscoveryEmails.fromAddress,
-          toAddresses: ediscoveryEmails.toAddresses,
-          sentAt: ediscoveryEmails.sentAt,
-          snippet: ediscoveryEmails.snippet,
-          hasAttachments: ediscoveryEmails.hasAttachments,
-        })
-        .from(ediscoveryEmails)
-        .where(and(...conditions))
-        .orderBy(desc(ediscoveryEmails.sentAt))
-        .limit(parseInt(String(limit)))
-        .offset(parseInt(String(offset)));
 
       // Add text search if query provided
       if (q) {
@@ -8187,7 +8180,24 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
         );
       }
 
-      const results = await query;
+      // Query with join to ediscoveryUploads to filter by projectId
+      const results = await db
+        .select({
+          id: ediscoveryEmails.id,
+          subject: ediscoveryEmails.subject,
+          fromAddress: ediscoveryEmails.fromAddress,
+          toAddresses: ediscoveryEmails.toAddresses,
+          sentAt: ediscoveryEmails.sentAt,
+          snippet: ediscoveryEmails.snippet,
+          hasAttachments: ediscoveryEmails.hasAttachments,
+          sourceFilename: ediscoveryEmails.sourceFilename,
+        })
+        .from(ediscoveryEmails)
+        .innerJoin(ediscoveryUploads, eq(ediscoveryEmails.uploadId, ediscoveryUploads.id))
+        .where(and(...conditions))
+        .orderBy(asc(ediscoveryEmails.sentAt))
+        .limit(parseInt(String(limit)))
+        .offset(parseInt(String(offset)));
 
       res.json({ items: results, total: results.length });
     } catch (error) {

@@ -129,6 +129,43 @@ export default function EDiscovery() {
     enabled: !!selectedProject?.id,
   });
   
+  // Fetch all emails for the project (sorted by date ascending)
+  const { data: allEmails, isLoading: isLoadingAllEmails } = useQuery<{
+    items: EdiscoveryEmail[];
+    total: number;
+  }>({
+    queryKey: ["/api/ediscovery/emails", selectedProject?.id, dateFrom, dateTo, senderFilter, hasAttachmentsFilter],
+    queryFn: async () => {
+      if (!selectedProject?.id) return { items: [], total: 0 };
+      
+      const params = new URLSearchParams({
+        projectId: selectedProject.id,
+        limit: '1000',
+      });
+      
+      if (dateFrom) {
+        params.append('dateFrom', format(dateFrom, "yyyy-MM-dd"));
+      }
+      if (dateTo) {
+        params.append('dateTo', format(dateTo, "yyyy-MM-dd"));
+      }
+      if (senderFilter && senderFilter !== "all") {
+        params.append('from', senderFilter);
+      }
+      if (hasAttachmentsFilter === "yes") {
+        params.append('hasAttachments', 'true');
+      } else if (hasAttachmentsFilter === "no") {
+        params.append('hasAttachments', 'false');
+      }
+      
+      const response = await fetch(`/api/ediscovery/emails?${params.toString()}`, {
+        credentials: "include",
+      });
+      return response.json();
+    },
+    enabled: !!selectedProject?.id,
+  });
+  
   const refetchUploads = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/ediscovery/uploads"] });
   };
@@ -687,32 +724,45 @@ export default function EDiscovery() {
                 </div>
               </div>
 
-              {aiSearchResults && (
+              {/* Email count display */}
+              {aiSearchResults ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Sparkles className="h-4 w-4 text-purple-500" />
+                  <span>AI Search: Found {aiSearchResults.total} matching emails</span>
+                </div>
+              ) : allEmails ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Mail className="h-4 w-4" />
-                  <span>Found {aiSearchResults.total} matching emails</span>
+                  <span>Showing {allEmails.total} emails (sorted by date)</span>
                 </div>
-              )}
+              ) : null}
             </div>
 
             {/* Results List */}
             <ScrollArea className="flex-1">
               <div className="p-4 space-y-2">
-                {!aiSearchResults && (
+                {isLoadingAllEmails && (
                   <div className="text-center py-12">
-                    <Search className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                    <p className="text-muted-foreground">Enter a search query to find emails</p>
+                    <Loader2 className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3 animate-spin" />
+                    <p className="text-muted-foreground">Loading emails...</p>
                   </div>
                 )}
 
-                {aiSearchResults && aiSearchResults.items.length === 0 && (
+                {!isLoadingAllEmails && !aiSearchResults && allEmails && allEmails.items.length === 0 && (
+                  <div className="text-center py-12">
+                    <Mail className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
+                    <p className="text-muted-foreground">No emails found. Upload PST files to get started.</p>
+                  </div>
+                )}
+
+                {!isLoadingAllEmails && aiSearchResults && aiSearchResults.items.length === 0 && (
                   <div className="text-center py-12">
                     <XCircle className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
-                    <p className="text-muted-foreground">No emails found matching your search</p>
+                    <p className="text-muted-foreground">No emails found matching your AI search</p>
                   </div>
                 )}
 
-                {aiSearchResults?.items.map((email) => (
+                {(aiSearchResults?.items || allEmails?.items || []).map((email) => (
                   <Card
                     key={email.id}
                     className={`p-3 cursor-pointer transition-colors ${selectedEmail === email.id ? "bg-accent" : "hover-elevate"}`}

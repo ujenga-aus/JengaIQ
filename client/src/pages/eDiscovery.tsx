@@ -381,58 +381,54 @@ export default function EDiscovery() {
   const processedCount = uploads?.filter(u => u.status === "complete").length || 0;
 
   return (
-    <div className="h-full flex flex-col gap-4 p-4">
-      <h1 data-testid="text-ediscovery-title">eDiscovery</h1>
-
-      {/* PST File Status Overview */}
+    <div className="h-full flex flex-col gap-2 p-2">
+      {/* PST File Status Overview - Compact Single Line */}
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">PST File Status</CardTitle>
+        <CardContent className="p-2">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-sm">
+              <span className="font-medium">PST File Status</span>
+              <div className="flex items-center gap-1">
+                <FileText className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Total Files:</span>
+                <span className="font-semibold">{totalPstFiles}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-success" />
+                <span className="text-muted-foreground">Processed:</span>
+                <span className="font-semibold">{processedCount}</span>
+              </div>
+              {scanResults && scanResults.newPstFiles.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 text-warning" />
+                  <span className="text-muted-foreground">Pending:</span>
+                  <span className="font-semibold">{scanResults.newPstFiles.length}</span>
+                </div>
+              )}
+            </div>
             <Button
               size="sm"
               variant="outline"
               onClick={() => refetchScan()}
               disabled={isScanning}
               className={cn(
-                "relative overflow-hidden bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20",
+                "h-7 text-xs relative overflow-hidden bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20",
                 isScanning && "bg-gradient-to-r from-primary via-purple-600 to-primary bg-[length:200%_100%] animate-gradient"
               )}
               data-testid="button-scan-sharepoint"
             >
               {isScanning ? (
                 <>
-                  <Sparkles className="h-3 w-3 mr-2 animate-pulse" />
+                  <Sparkles className="h-3 w-3 mr-1 animate-pulse" />
                   <span className="relative">AI Scanning...</span>
                 </>
               ) : (
                 <>
-                  <Sparkles className="h-3 w-3 mr-2" />
+                  <Sparkles className="h-3 w-3 mr-1" />
                   AI Scan Folder
                 </>
               )}
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-6">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Total Files:</span>
-              <span className="font-semibold">{totalPstFiles}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-success" />
-              <span className="text-sm text-muted-foreground">Processed:</span>
-              <span className="font-semibold">{processedCount}</span>
-            </div>
-            {scanResults && scanResults.newPstFiles.length > 0 && (
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-warning" />
-                <span className="text-sm text-muted-foreground">Pending:</span>
-                <span className="font-semibold">{scanResults.newPstFiles.length}</span>
-              </div>
-            )}
           </div>
 
           {scanResults?.error && (
@@ -573,7 +569,7 @@ export default function EDiscovery() {
         <ResizablePanel defaultSize={50} minSize={40}>
           <div className="h-full flex flex-col">
             {/* Search Section */}
-            <div className="p-4 border-b space-y-3">
+            <div className="p-2 border-b space-y-2">
               <div className="flex gap-2">
                 <div className="flex-1">
                   <Input

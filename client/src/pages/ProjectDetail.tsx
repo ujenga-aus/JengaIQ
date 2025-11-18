@@ -332,8 +332,8 @@ export default function ProjectDetail() {
           <EDiscovery />
         </TabsContent>
 
-        <TabsContent value="settings">
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+        <TabsContent value="settings" className="flex-1 overflow-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 p-2">
             {/* Project Details */}
             <ProjectSettingsCard project={project} />
 

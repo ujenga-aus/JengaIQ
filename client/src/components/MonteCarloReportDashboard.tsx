@@ -304,7 +304,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
       <Card className="p-3 sm:p-4">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 sm:gap-6">
           <div className="flex-shrink-0">
-            <h2 className="text-xl sm:text-2xl font-bold">Monte Carlo Simulation Report</h2>
+            <h2 className="text-base font-bold">Monte Carlo Simulation Report</h2>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
               Probabilistic Risk & Opportunity Quantification
             </p>

@@ -233,7 +233,7 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
                       return (
                         <g transform={`translate(${x},${y})`}>
                           <text
-                            x={5}
+                            x={-estimatedWidth + 5}
                             y={0}
                             dy={4}
                             textAnchor="start"

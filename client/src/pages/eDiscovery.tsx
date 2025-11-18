@@ -932,10 +932,10 @@ export default function EDiscovery() {
                   {emailDetails ? (
                     <div className="prose prose-sm max-w-none dark:prose-invert">
                       {emailDetails.email.bodyText ? (
-                        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                        <pre className="whitespace-pre-wrap font-sans text-sm leading-normal">
                           {emailDetails.email.bodyText
                             .replace(/[ \t]+$/gm, '') // Remove trailing spaces from each line
-                            .replace(/\n{3,}/g, '\n\n') // Collapse 3+ newlines to 2 (paragraph break)
+                            .replace(/\n{2,}/g, '\n') // Collapse 2+ newlines to single line break
                             .trim()
                           }
                         </pre>

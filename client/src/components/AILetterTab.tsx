@@ -990,7 +990,7 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
                     ) : 'AI suggestions will appear here'}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 overflow-hidden">
+                <CardContent className="flex-1 overflow-hidden p-0">
                   {uploadedLetterId ? (
                     <ResizablePanelGroup 
                       direction="horizontal" 

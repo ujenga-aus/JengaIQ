@@ -930,7 +930,7 @@ export default function EDiscovery() {
                 {/* Email Body */}
                 <ScrollArea className="flex-1 p-4 bg-white dark:bg-gray-950">
                   {emailDetails ? (
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <div>
                       {emailDetails.email.bodyText ? (
                         <pre className="whitespace-pre-wrap font-sans text-sm leading-normal text-gray-900 dark:text-gray-100">
                           {emailDetails.email.bodyText
@@ -940,7 +940,7 @@ export default function EDiscovery() {
                           }
                         </pre>
                       ) : emailDetails.email.bodyHtml ? (
-                        <div dangerouslySetInnerHTML={{ __html: emailDetails.email.bodyHtml }} />
+                        <div className="text-gray-900 dark:text-gray-100" dangerouslySetInnerHTML={{ __html: emailDetails.email.bodyHtml }} />
                       ) : (
                         <p className="text-muted-foreground italic">No email body available</p>
                       )}

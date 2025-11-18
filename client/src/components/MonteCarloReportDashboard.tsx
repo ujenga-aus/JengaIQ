@@ -397,7 +397,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
       ) : results ? (
         <>
           {/* Summary, Probability Bands, and Histogram in 3-column layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-[25%_25%_50%] gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-[24%_24%_50%] gap-2 max-w-full">
             {/* Summary Statistics */}
             <Card className="p-4">
               <h3 className="font-semibold mb-3 text-sm">A. Summary Results</h3>
@@ -486,8 +486,8 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             {/* Frequency Distribution Histogram */}
             <Card className="p-4">
               <h3 className="font-semibold mb-3 text-sm">B. Frequency Distribution</h3>
-              <div className="w-full h-[220px] relative">
-                <ResponsiveContainer width="99%" height="100%">
+              <div className="w-full h-[220px] relative overflow-hidden">
+                <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={histogramData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
@@ -549,19 +549,19 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
           </div>
 
           {/* Tornado Chart (D) and S-Curve (C) - Side by Side */}
-          <div className="grid grid-cols-1 lg:grid-cols-[50%_50%] gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 max-w-full">
             {/* Tornado Chart */}
             <Card className="p-4">
               <h3 className="font-semibold mb-2 text-sm">Top Risk Drivers</h3>
               <p className="text-xs text-muted-foreground mb-3">
                 Click a risk to view details
               </p>
-              <div className="w-full h-[220px] relative">
-                  <ResponsiveContainer width="99%" height="100%">
+              <div className="w-full h-[220px] relative overflow-hidden">
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart 
                   data={tornadoData} 
                   layout="vertical"
-                  margin={{ left: 10, right: 30, top: 5, bottom: 20 }}
+                  margin={{ left: 5, right: 20, top: 5, bottom: 15 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
@@ -571,7 +571,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   <YAxis 
                     type="category" 
                     dataKey="riskLabel"
-                    width={350}
+                    width={260}
                     tick={{ fill: 'hsl(var(--foreground))' }}
                     interval={0}
                   />
@@ -604,8 +604,8 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             {/* S-Curve (Exceedance Curve) */}
             <Card className="p-4">
               <h3 className="font-semibold mb-3 text-sm">C. Exceedance Curve</h3>
-              <div className="w-full h-[220px] relative">
-                <ResponsiveContainer width="99%" height="100%">
+              <div className="w-full h-[220px] relative overflow-hidden">
+                <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={sCurveData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis

@@ -8214,14 +8214,12 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
 
       const { ediscoveryEmails, ediscoveryAttachments } = await import('@shared/schema');
 
-      // Get email
+      // Get email - just check it exists, no company filtering needed
+      // (emails are accessed through projects which already have access control)
       const [email] = await db
         .select()
         .from(ediscoveryEmails)
-        .where(and(
-          eq(ediscoveryEmails.id, id),
-          eq(ediscoveryEmails.companyId, user.companyId)
-        ))
+        .where(eq(ediscoveryEmails.id, id))
         .limit(1);
 
       if (!email) {

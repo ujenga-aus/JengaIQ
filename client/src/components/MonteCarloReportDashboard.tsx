@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useRechartsTheme } from "@/hooks/useRechartsTheme";
 import {
   LineChart,
   Line,
@@ -73,6 +74,7 @@ interface MonteCarloResults {
 
 export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, autoRunTrigger }: MonteCarloReportDashboardProps) {
   const { toast } = useToast();
+  const chartTheme = useRechartsTheme();
   const [results, setResults] = useState<MonteCarloResults | null>(null);
   const [simulationProgress, setSimulationProgress] = useState<string>("");
   const [isRunning, setIsRunning] = useState(false);
@@ -360,7 +362,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
               disabled={runSimulationMutation.isPending || isRunning}
               size="lg"
               data-testid="button-run-simulation"
-              className="flex-1 sm:flex-initial"
+              className="flex-1 sm:flex-initial bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
             >
               {runSimulationMutation.isPending || isRunning ? (
                 <>
@@ -494,9 +496,11 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     dataKey="binMid"
                     label={{ value: 'Total Cost ($M)', position: 'insideBottom', offset: -5 }}
                     tickFormatter={(value) => `$${(value / 1000000).toFixed(0)}M`}
+                    style={chartTheme.axisStyle}
                   />
                   <YAxis
                     label={{ value: 'Number of Occurrences', angle: -90, position: 'insideLeft' }}
+                    style={chartTheme.axisStyle}
                   />
                   <Tooltip
                     formatter={(value: any) => [value, 'Occurrences']}
@@ -512,9 +516,9 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     label={{ 
                       value: 'P10', 
                       position: 'insideTopLeft',
-                      fill: '#8b5cf6', 
-                      fontWeight: 'bold',
-                      offset: 5
+                      fill: '#8b5cf6',
+                      offset: 5,
+                      ...chartTheme.labelStyle
                     }} 
                   />
                   <ReferenceLine 
@@ -525,9 +529,9 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     label={{ 
                       value: 'P50', 
                       position: 'insideTopLeft',
-                      fill: '#6366f1', 
-                      fontWeight: 'bold',
-                      offset: 5
+                      fill: '#6366f1',
+                      offset: 5,
+                      ...chartTheme.labelStyle
                     }} 
                   />
                   <ReferenceLine 
@@ -537,9 +541,9 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     label={{ 
                       value: 'P90', 
                       position: 'insideTopLeft',
-                      fill: '#f59e0b', 
-                      fontWeight: 'bold',
-                      offset: 5
+                      fill: '#f59e0b',
+                      offset: 5,
+                      ...chartTheme.labelStyle
                     }} 
                   />
                 </BarChart>
@@ -566,14 +570,15 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     type="number" 
-                    label={{ value: 'Proportion of Variance (%)', position: 'insideBottom', offset: -5 }} 
+                    label={{ value: 'Proportion of Variance (%)', position: 'insideBottom', offset: -5 }}
+                    style={chartTheme.axisStyle}
                   />
                   <YAxis 
                     type="category" 
                     dataKey="riskLabel"
                     width={260}
-                    tick={{ fill: 'hsl(var(--foreground))' }}
                     interval={0}
+                    style={chartTheme.axisStyle}
                   />
                   <Tooltip
                     formatter={(value: any) => [`${(value as number).toFixed(2)}%`, 'Variance Contribution']}
@@ -612,11 +617,13 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     dataKey="cost"
                     label={{ value: 'Total Cost ($M)', position: 'insideBottom', offset: -5 }}
                     tickFormatter={(value) => `$${(value / 1000000).toFixed(0)}M`}
+                    style={chartTheme.axisStyle}
                   />
                   <YAxis
                     label={{ value: 'Pr(Cost ≥ x)', angle: -90, position: 'insideLeft' }}
                     domain={[0, 1]}
                     tickFormatter={formatPercent}
+                    style={chartTheme.axisStyle}
                   />
                   <Tooltip
                     formatter={(value: any, name: string) => {
@@ -629,19 +636,19 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     x={results.p10}
                     stroke="#666"
                     strokeDasharray="3 3"
-                    label={{ value: 'P10', position: 'top' }}
+                    label={{ value: 'P10', position: 'top', ...chartTheme.labelStyle }}
                   />
                   <ReferenceLine
                     x={results.p50}
                     stroke="#666"
                     strokeDasharray="3 3"
-                    label={{ value: 'P50', position: 'top' }}
+                    label={{ value: 'P50', position: 'top', ...chartTheme.labelStyle }}
                   />
                   <ReferenceLine
                     x={results.p90}
                     stroke="#666"
                     strokeDasharray="3 3"
-                    label={{ value: 'P90', position: 'top' }}
+                    label={{ value: 'P90', position: 'top', ...chartTheme.labelStyle }}
                   />
                   <Line type="monotone" dataKey="probability" stroke="#2563eb" strokeWidth={2} dot={false} />
                 </LineChart>

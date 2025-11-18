@@ -956,7 +956,7 @@ export default function EDiscovery() {
 
         {/* Right Panel: Email Preview */}
         <ResizablePanel defaultSize={50} minSize={40}>
-          <div className="h-full flex flex-col border-l-4 border-l-blue-500">
+          <div className="h-full flex flex-col border-l-4 border-l-amber-700">
             {!selectedEmail ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">

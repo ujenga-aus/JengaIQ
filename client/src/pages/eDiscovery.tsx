@@ -928,11 +928,11 @@ export default function EDiscovery() {
                 </div>
 
                 {/* Email Body */}
-                <ScrollArea className="flex-1 p-4">
+                <ScrollArea className="flex-1 p-4 bg-white dark:bg-gray-950">
                   {emailDetails ? (
                     <div className="prose prose-sm max-w-none dark:prose-invert">
                       {emailDetails.email.bodyText ? (
-                        <pre className="whitespace-pre-wrap font-sans text-sm leading-normal">
+                        <pre className="whitespace-pre-wrap font-sans text-sm leading-normal text-gray-900 dark:text-gray-100">
                           {emailDetails.email.bodyText
                             .replace(/[ \t]+$/gm, '') // Remove trailing spaces from each line
                             .replace(/\n{2,}/g, '\n') // Collapse 2+ newlines to single line break

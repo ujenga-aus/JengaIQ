@@ -366,9 +366,10 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             <Button
               onClick={() => runSimulationMutation.mutate()}
               disabled={runSimulationMutation.isPending || isRunning}
-              size="lg"
+              size="default"
+              variant="default"
               data-testid="button-run-simulation"
-              className="flex-1 sm:flex-initial bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
+              className="flex-1 sm:flex-initial"
             >
               {runSimulationMutation.isPending || isRunning ? (
                 <>

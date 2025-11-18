@@ -108,6 +108,13 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
       };
     });
 
+  // Calculate dynamic Y-axis width based on longest label
+  // Font is 10px, approximately 6px per character on average
+  const longestLabel = tornadoData.reduce((longest, item) => {
+    return item.riskLabel.length > longest.length ? item.riskLabel : longest;
+  }, '');
+  const estimatedWidth = Math.max(240, (longestLabel.length + 1) * 6 + 10); // +1 char buffer, +10px padding
+
   return (
     <div className="col-span-full space-y-3">
       <div className="flex items-center gap-2">
@@ -220,7 +227,7 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
                   <YAxis 
                     type="category" 
                     dataKey="riskLabel" 
-                    width={240}
+                    width={estimatedWidth}
                     tick={(props: any) => {
                       const { x, y, payload } = props;
                       return (

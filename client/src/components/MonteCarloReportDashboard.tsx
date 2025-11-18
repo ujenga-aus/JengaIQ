@@ -503,11 +503,11 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     dataKey="binMid"
                     label={{ value: 'Total Cost ($M)', position: 'insideBottom', offset: -5 }}
                     tickFormatter={(value) => `$${(value / 1000000).toFixed(0)}M`}
-                    style={chartTheme.axisStyle}
+                    tick={{ fill: 'hsl(var(--foreground))', fontSize: 10, fontWeight: 500 }}
                   />
                   <YAxis
                     label={{ value: 'Number of Occurrences', angle: -90, position: 'insideLeft' }}
-                    style={chartTheme.axisStyle}
+                    tick={{ fill: 'hsl(var(--foreground))', fontSize: 10, fontWeight: 500 }}
                   />
                   <Tooltip
                     formatter={(value: any) => [value, 'Occurrences']}
@@ -581,7 +581,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   <XAxis 
                     type="number" 
                     label={{ value: 'Proportion of Variance (%)', position: 'insideBottom', offset: -5 }}
-                    style={chartTheme.axisStyle}
+                    tick={{ fill: 'hsl(var(--foreground))', fontSize: 10, fontWeight: 500 }}
                   />
                   <YAxis 
                     type="category" 
@@ -645,13 +645,13 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                     dataKey="cost"
                     label={{ value: 'Total Cost ($M)', position: 'insideBottom', offset: -5 }}
                     tickFormatter={(value) => `$${(value / 1000000).toFixed(0)}M`}
-                    style={chartTheme.axisStyle}
+                    tick={{ fill: 'hsl(var(--foreground))', fontSize: 10, fontWeight: 500 }}
                   />
                   <YAxis
                     label={{ value: 'Pr(Cost ≥ x)', angle: -90, position: 'insideLeft' }}
                     domain={[0, 1]}
                     tickFormatter={formatPercent}
-                    style={chartTheme.axisStyle}
+                    tick={{ fill: 'hsl(var(--foreground))', fontSize: 10, fontWeight: 500 }}
                   />
                   <Tooltip
                     formatter={(value: any, name: string) => {

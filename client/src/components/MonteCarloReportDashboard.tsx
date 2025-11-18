@@ -486,7 +486,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             {/* Frequency Distribution Histogram */}
             <Card className="p-4">
               <h3 className="font-semibold mb-3 text-sm">B. Frequency Distribution</h3>
-              <div className="w-full h-[220px] relative overflow-hidden">
+              <div className="w-full h-[300px] relative overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={histogramData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -556,7 +556,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
               <p className="text-xs text-muted-foreground mb-3">
                 Click a risk to view details
               </p>
-              <div className="w-full h-[220px] relative overflow-hidden">
+              <div className="w-full h-[300px] relative overflow-hidden">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart 
                   data={tornadoData} 
@@ -604,7 +604,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
             {/* S-Curve (Exceedance Curve) */}
             <Card className="p-4">
               <h3 className="font-semibold mb-3 text-sm">C. Exceedance Curve</h3>
-              <div className="w-full h-[220px] relative overflow-hidden">
+              <div className="w-full h-[300px] relative overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={sCurveData}>
                   <CartesianGrid strokeDasharray="3 3" />

@@ -247,6 +247,12 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
         .filter(item => item.contribution > 0) // Filter out zero contributions
     : [];
 
+  // Calculate dynamic Y-axis width for tornado chart based on longest label
+  const longestTornadoLabel = tornadoData.reduce((longest, item) => {
+    return item.riskLabel.length > longest.length ? item.riskLabel : longest;
+  }, '');
+  const tornadoYAxisWidth = Math.max(260, (longestTornadoLabel.length + 1) * 6 + 10);
+
   // Prepare Histogram data (Frequency Distribution)
   const histogramData = results ? (() => {
     const sorted = [...results.distribution].sort((a, b) => a - b);
@@ -555,17 +561,20 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
           {/* Tornado Chart (D) and S-Curve (C) - Side by Side */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 max-w-full">
             {/* Tornado Chart */}
-            <Card className="p-4">
-              <h3 className="font-semibold mb-2 text-sm">Top Risk Drivers</h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                Click a risk to view details
-              </p>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">Top Risk Drivers</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Click a risk to view details
+                </p>
+              </CardHeader>
+              <CardContent className="pl-0 pr-4">
               <div className="w-full h-[300px] relative overflow-hidden">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart 
                   data={tornadoData} 
                   layout="vertical"
-                  margin={{ left: 5, right: 20, top: 5, bottom: 15 }}
+                  margin={{ left: 0, right: 20, top: 5, bottom: 15 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
@@ -576,9 +585,26 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                   <YAxis 
                     type="category" 
                     dataKey="riskLabel"
-                    width={260}
+                    width={tornadoYAxisWidth}
                     interval={0}
-                    style={chartTheme.axisStyle}
+                    tick={(props: any) => {
+                      const { x, y, payload } = props;
+                      return (
+                        <g transform={`translate(${x},${y})`}>
+                          <text
+                            x={-5}
+                            y={0}
+                            dy={4}
+                            textAnchor="end"
+                            fill="hsl(var(--foreground))"
+                            fontSize={10}
+                            fontWeight={500}
+                          >
+                            {payload.value}
+                          </text>
+                        </g>
+                      );
+                    }}
                   />
                   <Tooltip
                     formatter={(value: any) => [`${(value as number).toFixed(2)}%`, 'Variance Contribution']}
@@ -604,6 +630,7 @@ export function MonteCarloReportDashboard({ projectId, revisionId, onRiskClick, 
                 </BarChart>
               </ResponsiveContainer>
               </div>
+              </CardContent>
             </Card>
 
             {/* S-Curve (Exceedance Curve) */}

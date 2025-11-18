@@ -233,10 +233,10 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
                       return (
                         <g transform={`translate(${x},${y})`}>
                           <text
-                            x={-estimatedWidth + 5}
+                            x={-5}
                             y={0}
                             dy={4}
-                            textAnchor="start"
+                            textAnchor="end"
                             fill="hsl(var(--foreground))"
                             fontSize={10}
                             fontWeight={500}

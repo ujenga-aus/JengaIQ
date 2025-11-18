@@ -8302,15 +8302,12 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
       const { ediscoveryEmails, ediscoveryUploads } = await import('@shared/schema');
       const { sql } = await import('drizzle-orm');
       
-      // Get distinct sender addresses for this project
+      // Get distinct sender addresses for this project (PST files belong to projects only)
       const senders = await db
         .selectDistinct({ fromAddress: ediscoveryEmails.fromAddress })
         .from(ediscoveryEmails)
         .innerJoin(ediscoveryUploads, eq(ediscoveryEmails.uploadId, ediscoveryUploads.id))
-        .where(and(
-          eq(ediscoveryEmails.companyId, user.companyId),
-          eq(ediscoveryUploads.projectId, projectId)
-        ))
+        .where(eq(ediscoveryUploads.projectId, projectId))
         .orderBy(ediscoveryEmails.fromAddress);
 
       // Filter out null/empty senders and return array of strings
@@ -8352,8 +8349,8 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
       const { ediscoveryEmails, ediscoveryEmailTags, ediscoveryUploads } = await import('@shared/schema');
       const { gte, lte, like } = await import('drizzle-orm');
       
-      // Build conditions
-      const conditions: any[] = [eq(ediscoveryEmails.companyId, user.companyId)];
+      // Build conditions (PST files belong to projects, not companies)
+      const conditions: any[] = [];
       
       if (sourceFilename) {
         conditions.push(eq(ediscoveryEmails.sourceFilename, sourceFilename));

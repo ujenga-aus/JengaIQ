@@ -673,7 +673,7 @@ export default function EDiscovery() {
       <ResizablePanelGroup direction="horizontal" className="flex-1 rounded-lg border">
         {/* Left Panel: Search + Results */}
         <ResizablePanel defaultSize={50} minSize={40}>
-          <div className="h-full flex flex-col">
+          <div className="h-full flex flex-col border-l-4 border-l-purple-500">
             {/* Search Section */}
             <div className="p-2 border-b space-y-2">
               <div className="flex gap-2">
@@ -956,7 +956,7 @@ export default function EDiscovery() {
 
         {/* Right Panel: Email Preview */}
         <ResizablePanel defaultSize={50} minSize={40}>
-          <div className="h-full flex flex-col">
+          <div className="h-full flex flex-col border-l-4 border-l-blue-500">
             {!selectedEmail ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">

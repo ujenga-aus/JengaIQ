@@ -740,7 +740,7 @@ export default function EDiscovery() {
 
             {/* Results List */}
             <ScrollArea className="flex-1">
-              <div className="p-4 space-y-2">
+              <div className="flex flex-col">
                 {isLoadingAllEmails && (
                   <div className="text-center py-12">
                     <Loader2 className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3 animate-spin" />
@@ -763,77 +763,46 @@ export default function EDiscovery() {
                 )}
 
                 {(aiSearchResults?.items || allEmails?.items || []).map((email) => (
-                  <Card
+                  <div
                     key={email.id}
-                    className={`p-3 cursor-pointer transition-colors ${selectedEmail === email.id ? "bg-accent" : "hover-elevate"}`}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2 cursor-pointer border-b text-sm transition-colors",
+                      selectedEmail === email.id ? "bg-accent" : "hover-elevate"
+                    )}
                     onClick={() => setSelectedEmail(email.id)}
                     data-testid={`email-result-${email.id}`}
                   >
-                    <div className="space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-medium text-sm line-clamp-1">{email.subject || "(No Subject)"}</h3>
-                        {email.similarity && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="flex flex-col items-end gap-1 flex-shrink-0 cursor-help">
-                                <Badge variant="secondary" className="text-xs">
-                                  {Math.round(email.similarity * 100)}%
-                                </Badge>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {email.similarity >= 0.8 ? "Strong match" : 
-                                   email.similarity >= 0.6 ? "Good match" :
-                                   email.similarity >= 0.4 ? "Moderate match" :
-                                   "Weak match"}
-                                </span>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="left" className="max-w-xs">
-                              <p className="font-semibold mb-1">AI Semantic Similarity</p>
-                              <p className="text-xs">
-                                This score shows how closely the email content matches your search query based on meaning, 
-                                not just keywords. Higher scores indicate stronger conceptual relevance.
-                              </p>
-                              <p className="text-xs mt-2 text-muted-foreground">
-                                {email.similarity >= 0.8 ? "This email is highly relevant to your search." : 
-                                 email.similarity >= 0.6 ? "This email has good relevance to your search." :
-                                 email.similarity >= 0.4 ? "This email has moderate relevance to your search." :
-                                 "This email has some relevance to your search."}
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Mail className="h-3 w-3" />
-                          <span className="truncate max-w-[200px]">{email.fromAddress || "Unknown"}</span>
-                        </div>
-                        {email.sentAt && (
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>{format(new Date(email.sentAt), "dd MMM yyyy")}</span>
-                          </div>
-                        )}
-                        {email.hasAttachments && (
-                          <Badge variant="outline" className="h-5 px-1 text-xs">
-                            <Paperclip className="h-3 w-3" />
-                          </Badge>
-                        )}
-                      </div>
+                    {/* Date */}
+                    <div className="flex-shrink-0 w-24 text-muted-foreground">
+                      {email.sentAt ? format(new Date(email.sentAt), "dd MMM yyyy") : "No date"}
+                    </div>
+                    
+                    <Separator orientation="vertical" className="h-4" />
+                    
+                    {/* From */}
+                    <div className="flex-shrink-0 w-48 truncate text-muted-foreground">
+                      {email.fromAddress || "Unknown"}
+                    </div>
+                    
+                    <Separator orientation="vertical" className="h-4" />
+                    
+                    {/* Subject */}
+                    <div className="flex-1 truncate font-medium">
+                      {email.subject || "(No Subject)"}
+                    </div>
 
-                      {email.snippet && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{email.snippet}</p>
+                    {/* Optional indicators */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {email.hasAttachments && (
+                        <Paperclip className="h-3 w-3 text-muted-foreground" />
                       )}
-
-                      {email.sourceFilename && (
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <FileText className="h-3 w-3" />
-                          <span className="truncate">{email.sourceFilename}</span>
-                        </div>
+                      {email.similarity && (
+                        <Badge variant="secondary" className="text-xs">
+                          {Math.round(email.similarity * 100)}%
+                        </Badge>
                       )}
                     </div>
-                  </Card>
+                  </div>
                 ))}
               </div>
             </ScrollArea>

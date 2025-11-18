@@ -842,70 +842,73 @@ export default function EDiscovery() {
                     </Button>
                   </div>
 
-                  {emailDetails && (
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">From: </span>
-                        <span className="font-medium">{emailDetails.email.fromAddress}</span>
+                  <div className="flex gap-4">
+                    {/* Left side: Email metadata */}
+                    {emailDetails && (
+                      <div className="flex-1 space-y-2 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">From: </span>
+                          <span className="font-medium">{emailDetails.email.fromAddress}</span>
+                        </div>
+                        {emailDetails.email.sentAt && (
+                          <div>
+                            <span className="text-muted-foreground">Date: </span>
+                            <span>{format(new Date(emailDetails.email.sentAt), "PPpp")}</span>
+                          </div>
+                        )}
+                        {emailDetails.email.toAddresses && emailDetails.email.toAddresses.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">To: </span>
+                            <span>{emailDetails.email.toAddresses.join(", ")}</span>
+                          </div>
+                        )}
+                        {emailDetails.email.ccAddresses && emailDetails.email.ccAddresses.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Cc: </span>
+                            <span>{emailDetails.email.ccAddresses.join(", ")}</span>
+                          </div>
+                        )}
                       </div>
-                      {emailDetails.email.toAddresses && emailDetails.email.toAddresses.length > 0 && (
-                        <div>
-                          <span className="text-muted-foreground">To: </span>
-                          <span>{emailDetails.email.toAddresses.join(", ")}</span>
-                        </div>
-                      )}
-                      {emailDetails.email.ccAddresses && emailDetails.email.ccAddresses.length > 0 && (
-                        <div>
-                          <span className="text-muted-foreground">Cc: </span>
-                          <span>{emailDetails.email.ccAddresses.join(", ")}</span>
-                        </div>
-                      )}
-                      {emailDetails.email.sentAt && (
-                        <div>
-                          <span className="text-muted-foreground">Date: </span>
-                          <span>{format(new Date(emailDetails.email.sentAt), "PPpp")}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    )}
 
-                  {/* Variation Tags */}
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Variation Tags</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {emailTags.map((tag) => (
-                        <Badge key={tag.id} variant="secondary" className="gap-1">
-                          <Tag className="h-3 w-3" />
-                          {tag.label}
+                    {/* Right side: Variation Tags */}
+                    <div className="flex-1 space-y-2">
+                      <Label className="text-xs text-muted-foreground">Variation Tags</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {emailTags.map((tag) => (
+                          <Badge key={tag.id} variant="secondary" className="gap-1">
+                            <Tag className="h-3 w-3" />
+                            {tag.label}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-4 w-4 p-0 ml-1"
+                              onClick={() => removeTagMutation.mutate(tag.id)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </Badge>
+                        ))}
+                        <div className="flex gap-1">
+                          <Input
+                            placeholder="VAR-001"
+                            value={newTagLabel}
+                            onChange={(e) => setNewTagLabel(e.target.value)}
+                            onKeyPress={(e) => e.key === "Enter" && handleAddTag()}
+                            className="h-7 w-24 text-xs"
+                            data-testid="input-new-tag"
+                          />
                           <Button
                             size="sm"
-                            variant="ghost"
-                            className="h-4 w-4 p-0 ml-1"
-                            onClick={() => removeTagMutation.mutate(tag.id)}
+                            variant="outline"
+                            className="h-7 w-7 p-0"
+                            onClick={handleAddTag}
+                            disabled={!newTagLabel.trim() || addTagMutation.isPending}
+                            data-testid="button-add-tag"
                           >
-                            <X className="h-3 w-3" />
+                            <Plus className="h-3 w-3" />
                           </Button>
-                        </Badge>
-                      ))}
-                      <div className="flex gap-1">
-                        <Input
-                          placeholder="VAR-001"
-                          value={newTagLabel}
-                          onChange={(e) => setNewTagLabel(e.target.value)}
-                          onKeyPress={(e) => e.key === "Enter" && handleAddTag()}
-                          className="h-7 w-24 text-xs"
-                          data-testid="input-new-tag"
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 w-7 p-0"
-                          onClick={handleAddTag}
-                          disabled={!newTagLabel.trim() || addTagMutation.isPending}
-                          data-testid="button-add-tag"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
+                        </div>
                       </div>
                     </div>
                   </div>

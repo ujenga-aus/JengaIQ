@@ -27,6 +27,7 @@ import {
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { useProject } from "@/contexts/ProjectContext";
+import { useThemeSettings } from "@/contexts/ThemeSettingsContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Calendar } from "@/components/ui/calendar";
@@ -762,9 +763,10 @@ export default function EDiscovery() {
                   <div
                     key={email.id}
                     className={cn(
-                      "flex items-center gap-3 px-4 py-2 cursor-pointer border-b text-sm transition-colors",
+                      "flex items-center gap-3 px-4 cursor-pointer border-b text-sm transition-colors",
                       selectedEmail === email.id ? "bg-accent" : "hover-elevate"
                     )}
+                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                     onClick={() => setSelectedEmail(email.id)}
                     data-testid={`email-result-${email.id}`}
                   >

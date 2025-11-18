@@ -207,17 +207,17 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
 
         {/* D - Key Drivers (Tornado Chart) */}
         <Card>
-          <CardHeader className="pb-3 px-[15px]">
+          <CardHeader className="pb-3">
             <CardTitle className="text-xs font-bold">Top Risk Drivers</CardTitle>
           </CardHeader>
-          <CardContent className="px-[15px]">
+          <CardContent className="pl-0 pr-4">
             {tornadoData.length > 0 ? (
               <div className="w-full h-[220px] min-h-[220px] relative">
-                <ResponsiveContainer width="99%" height="100%">
+                <ResponsiveContainer width="100%" height="100%">
                   <BarChart 
                   data={tornadoData} 
                   layout="vertical"
-                  margin={{ top: 5, right: 15, left: 5, bottom: 5 }}
+                  margin={{ top: 5, right: 15, left: 0, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis 
@@ -233,10 +233,10 @@ export function RiskSummaryDashboard({ projectId }: RiskSummaryDashboardProps) {
                       return (
                         <g transform={`translate(${x},${y})`}>
                           <text
-                            x={-5}
+                            x={0}
                             y={0}
                             dy={4}
-                            textAnchor="end"
+                            textAnchor="start"
                             fill="hsl(var(--foreground))"
                             fontSize={10}
                             fontWeight={500}

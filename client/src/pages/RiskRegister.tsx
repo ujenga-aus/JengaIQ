@@ -2229,8 +2229,8 @@ export default function RiskRegister() {
   }
 
   return (
-    <div className="space-y-4">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+    <div className="space-y-4 min-h-0">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 min-h-0">
         <TabsList data-testid="tabs-risk-register" className="w-full justify-start">
           <TabsTrigger value="risks" data-testid="tab-risks">
             Risks

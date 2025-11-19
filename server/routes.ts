@@ -11495,6 +11495,227 @@ CRITICAL REQUIREMENTS:
     }
   });
 
+  // Worksheets Excel import - preview
+  app.post('/api/projects/:projectId/worksheets/import/preview', isAuthenticated, upload.single('file'), async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const person = (req as any).person;
+      const file = req.file;
+
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (!file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const { parseRawRows, detectHeaderRow } = await import('./utils/excelParser');
+      
+      const rawRows = await parseRawRows(file.buffer, 25);
+      
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(file.buffer);
+      const worksheet = workbook.worksheets[0];
+      
+      const suggestedHeaderRow = detectHeaderRow(worksheet);
+
+      res.json({
+        rawRows,
+        headerRowNumber: suggestedHeaderRow,
+      });
+    } catch (error) {
+      console.error('Error previewing Worksheets Excel file:', error);
+      res.status(500).json({ error: 'Failed to preview Excel file' });
+    }
+  });
+
+  // In-memory progress tracking for Worksheets imports
+  const worksheetsImportProgress = new Map<string, {
+    total: number;
+    current: number;
+    status: 'processing' | 'complete' | 'error';
+    error?: string;
+    importedCount?: number;
+    failedCount?: number;
+    failedRows?: Array<{ row: number; wkshtCode: string; description: string; reason: string }>;
+  }>();
+
+  // Worksheets Excel import - progress check
+  app.get('/api/projects/:projectId/worksheets/import/progress/:importId', isAuthenticated, (req, res) => {
+    const { importId } = req.params;
+    const progress = worksheetsImportProgress.get(importId);
+    
+    if (!progress) {
+      return res.status(404).json({ error: 'Import not found' });
+    }
+    
+    res.json(progress);
+  });
+
+  // Worksheets Excel import - commit
+  app.post('/api/projects/:projectId/worksheets/import/commit', isAuthenticated, upload.single('file'), async (req, res) => {
+    const { projectId } = req.params;
+    const person = (req as any).person;
+    const file = req.file;
+    const { columnMapping, headerRowNumber, importId } = req.body;
+
+    try {
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (!file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      if (!importId) {
+        return res.status(400).json({ error: 'Import ID is required' });
+      }
+
+      // Start processing async
+      (async () => {
+        try {
+          const { parseExcelDataFull } = await import('./utils/excelParser');
+          const { worksheets, insertWorksheetSchema } = await import('@shared/schema');
+
+          const mapping = typeof columnMapping === 'string' 
+            ? JSON.parse(columnMapping) 
+            : columnMapping;
+
+          const headerRow = headerRowNumber ? parseInt(headerRowNumber.toString()) : 1;
+
+          const excelRows = await parseExcelDataFull(file.buffer, mapping, headerRow);
+          
+          console.log(`[Worksheets Import] Starting import of ${excelRows.length} rows`);
+          console.log(`[Worksheets Import] Column mapping:`, JSON.stringify(mapping, null, 2));
+
+          worksheetsImportProgress.set(importId, {
+            total: excelRows.length,
+            current: 0,
+            status: 'processing',
+            importedCount: 0,
+            failedCount: 0,
+            failedRows: []
+          });
+
+          let importedCount = 0;
+          let failedCount = 0;
+          const failedRows: Array<{ row: number; wkshtCode: string; description: string; reason: string }> = [];
+
+          for (let i = 0; i < excelRows.length; i++) {
+            const rowNum = i + headerRow + 1;
+            const row = excelRows[i];
+
+            try {
+              const wkshtCode = row.wkshtCode?.toString().trim() || '';
+              const description = row.description?.toString().trim() || '';
+              const unit = row.unit?.toString().trim() || '';
+
+              if (!wkshtCode) {
+                failedRows.push({
+                  row: rowNum,
+                  wkshtCode: '',
+                  description,
+                  reason: 'Missing worksheet code'
+                });
+                failedCount++;
+                continue;
+              }
+
+              if (!description) {
+                failedRows.push({
+                  row: rowNum,
+                  wkshtCode,
+                  description: '',
+                  reason: 'Missing description'
+                });
+                failedCount++;
+                continue;
+              }
+
+              const validated = insertWorksheetSchema.parse({
+                projectId,
+                wkshtCode,
+                description,
+                unit: unit || null,
+              });
+
+              const [worksheet] = await db
+                .insert(worksheets)
+                .values(validated)
+                .returning();
+
+              worksheetsWS.broadcastToProject(projectId, {
+                type: 'worksheet_created',
+                data: worksheet
+              });
+
+              importedCount++;
+            } catch (error: any) {
+              console.error(`[Worksheets Import] Failed to import row ${rowNum}:`, error);
+              
+              let reason = 'Unknown error';
+              if (error.code === '23505') {
+                reason = 'Duplicate code';
+              } else if (error.message) {
+                reason = error.message;
+              }
+
+              failedRows.push({
+                row: rowNum,
+                wkshtCode: row.wkshtCode?.toString() || '',
+                description: row.description?.toString() || '',
+                reason
+              });
+              failedCount++;
+            }
+
+            worksheetsImportProgress.set(importId, {
+              total: excelRows.length,
+              current: i + 1,
+              status: 'processing',
+              importedCount,
+              failedCount,
+              failedRows
+            });
+          }
+
+          worksheetsImportProgress.set(importId, {
+            total: excelRows.length,
+            current: excelRows.length,
+            status: 'complete',
+            importedCount,
+            failedCount,
+            failedRows
+          });
+
+          console.log(`[Worksheets Import] Complete: ${importedCount} imported, ${failedCount} failed`);
+
+        } catch (error: any) {
+          console.error('[Worksheets Import] Fatal error:', error);
+          worksheetsImportProgress.set(importId, {
+            total: 0,
+            current: 0,
+            status: 'error',
+            error: error.message || 'Unknown error occurred'
+          });
+        }
+      })().catch((error) => {
+        console.error('[Worksheets Import] Async handler error:', error);
+      });
+
+      res.json({ message: 'Import started', importId });
+    } catch (error: any) {
+      console.error('[Worksheets Import] Request error:', error);
+      res.status(500).json({ error: 'Failed to start import' });
+    }
+  });
+
   // === PROCUREMENT: SUBCONTRACT TEMPLATES ===
 
   // Upload subcontract template PDF

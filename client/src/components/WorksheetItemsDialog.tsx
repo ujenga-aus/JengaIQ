@@ -40,8 +40,6 @@ interface ResourceRate {
   tenderRate: string | null;
 }
 
-const STORAGE_KEY_COLUMN_WIDTHS = 'worksheet-items-column-widths';
-
 const DEFAULT_COLUMN_WIDTHS = {
   lq: 80,
   description: 300,
@@ -149,21 +147,37 @@ export default function WorksheetItemsDialog({
     };
   }, []);
 
-  // Column widths state with localStorage persistence
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY_COLUMN_WIDTHS);
-      if (stored) {
-        return { ...DEFAULT_COLUMN_WIDTHS, ...JSON.parse(stored) };
-      }
-    } catch {}
-    return DEFAULT_COLUMN_WIDTHS;
+  // Fetch user column preferences from API
+  const { data: columnPreferences } = useQuery<{ columnWidths?: Record<string, number> }>({
+    queryKey: ['/api/user-worksheet-column-preferences'],
+  });
+
+  // Column widths state with API persistence
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(DEFAULT_COLUMN_WIDTHS);
+
+  // Load column preferences when fetched
+  useEffect(() => {
+    if (columnPreferences?.columnWidths) {
+      setColumnWidths({ ...DEFAULT_COLUMN_WIDTHS, ...columnPreferences.columnWidths });
+    }
+  }, [columnPreferences]);
+
+  // Save column preferences mutation
+  const saveColumnPreferencesMutation = useMutation({
+    mutationFn: async (columnWidths: Record<string, number>) => {
+      return await apiRequest('PUT', '/api/user-worksheet-column-preferences', { columnWidths });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['/api/user-worksheet-column-preferences'],
+      });
+    },
   });
 
   const saveColumnWidth = (columnId: string, width: number) => {
     const newWidths = { ...columnWidths, [columnId]: width };
     setColumnWidths(newWidths);
-    localStorage.setItem(STORAGE_KEY_COLUMN_WIDTHS, JSON.stringify(newWidths));
+    saveColumnPreferencesMutation.mutate(newWidths);
   };
 
   // Fetch worksheet items

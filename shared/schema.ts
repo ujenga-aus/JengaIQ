@@ -1334,6 +1334,26 @@ export const insertUserRiskColumnPreferencesSchema = createInsertSchema(userRisk
 export type InsertUserRiskColumnPreferences = z.infer<typeof insertUserRiskColumnPreferencesSchema>;
 export type UserRiskColumnPreferences = typeof userRiskColumnPreferences.$inferSelect;
 
+// User Worksheet Column Preferences - Store column widths per user for worksheet items dialog
+export const userWorksheetColumnPreferences = pgTable("user_worksheet_column_preferences", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  personId: varchar("person_id").notNull().references(() => people.id, { onDelete: "cascade" }),
+  columnWidths: jsonb("column_widths").notNull(), // Object mapping column keys to widths in pixels
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  uniqPerson: unique().on(table.personId) // One preferences record per user
+}));
+
+export const insertUserWorksheetColumnPreferencesSchema = createInsertSchema(userWorksheetColumnPreferences).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertUserWorksheetColumnPreferences = z.infer<typeof insertUserWorksheetColumnPreferencesSchema>;
+export type UserWorksheetColumnPreferences = typeof userWorksheetColumnPreferences.$inferSelect;
+
 // === eDiscovery (PST Email Processing) ===
 
 // eDiscovery Uploads - Tracks PST file uploads and processing status

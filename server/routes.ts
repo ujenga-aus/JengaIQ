@@ -74,6 +74,8 @@ import {
   insertCompanyThemeSettingsSchema,
   userRiskColumnPreferences,
   insertUserRiskColumnPreferencesSchema,
+  userWorksheetColumnPreferences,
+  insertUserWorksheetColumnPreferencesSchema,
   resourceTypes,
   insertResourceTypeSchema,
   monteCarloSnapshots,
@@ -7614,6 +7616,51 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
       res.json(preferences);
     } catch (error) {
       console.error('Error saving user risk column preferences:', error);
+      res.status(500).json({ error: 'Failed to save column preferences' });
+    }
+  });
+
+  // Get user's worksheet column preferences
+  app.get('/api/user-worksheet-column-preferences', isAuthenticated, async (req, res) => {
+    try {
+      const personId = (req as any).person.id;
+      const [preferences] = await db
+        .select()
+        .from(userWorksheetColumnPreferences)
+        .where(eq(userWorksheetColumnPreferences.personId, personId))
+        .limit(1);
+      
+      res.json(preferences || null);
+    } catch (error) {
+      console.error('Error fetching user worksheet column preferences:', error);
+      res.status(500).json({ error: 'Failed to fetch column preferences' });
+    }
+  });
+
+  // Save/update user's worksheet column preferences
+  app.put('/api/user-worksheet-column-preferences', isAuthenticated, async (req, res) => {
+    try {
+      const personId = (req as any).person.id;
+      const { columnWidths } = req.body;
+      
+      const [preferences] = await db
+        .insert(userWorksheetColumnPreferences)
+        .values({
+          personId: personId,
+          columnWidths,
+        })
+        .onConflictDoUpdate({
+          target: userWorksheetColumnPreferences.personId,
+          set: {
+            columnWidths,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      
+      res.json(preferences);
+    } catch (error) {
+      console.error('Error saving user worksheet column preferences:', error);
       res.status(500).json({ error: 'Failed to save column preferences' });
     }
   });

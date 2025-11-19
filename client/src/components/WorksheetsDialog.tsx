@@ -883,7 +883,7 @@ export function WorksheetsDialog({
         onOpenChange={setShowImportDialog}
         projectId={projectId}
         onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/worksheets`] });
+          queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'worksheets'] });
           toast({
             title: "Import successful",
             description: "Worksheets have been imported successfully",

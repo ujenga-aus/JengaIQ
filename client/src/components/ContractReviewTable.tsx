@@ -2144,13 +2144,13 @@ export function ContractReviewTable({
                                 >
                                   <Badge 
                                     variant={
-                                      calculatedStatus.toLowerCase() === 'approved' ? 'default' : 
+                                      calculatedStatus.toLowerCase() === 'approved' ? 'success' : 
                                       calculatedStatus.toLowerCase() === 'rejected' ? 'destructive' : 
                                       'secondary'
                                     }
                                     className={
                                       calculatedStatus.toLowerCase() === 'approved' 
-                                        ? 'capitalize font-bold' 
+                                        ? 'capitalize' 
                                         : calculatedStatus.toLowerCase() === 'pending'
                                         ? 'capitalize text-orange-700 dark:text-orange-400'
                                         : 'capitalize'
@@ -2181,14 +2181,10 @@ export function ContractReviewTable({
                                               </div>
                                               <Badge 
                                                 variant={
-                                                  approval.status.toLowerCase() === 'approved' ? 'default' : 
+                                                  approval.status.toLowerCase() === 'approved' ? 'success' : 
                                                   approval.status.toLowerCase() === 'rejected' ? 'destructive' : 'secondary'
                                                 }
-                                                className={`capitalize text-xs shrink-0 ${
-                                                  approval.status.toLowerCase() === 'approved' 
-                                                    ? 'text-white dark:text-white' 
-                                                    : ''
-                                                }`}
+                                                className="capitalize text-xs shrink-0"
                                               >
                                                 {approval.status}
                                               </Badge>

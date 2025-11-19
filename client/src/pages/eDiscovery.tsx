@@ -511,29 +511,36 @@ export default function EDiscovery() {
                 </div>
               )}
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => refetchScan()}
-              disabled={isScanning}
-              className={cn(
-                "h-7 text-xs relative overflow-hidden bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20",
-                isScanning && "bg-gradient-to-r from-primary via-purple-600 to-primary bg-[length:200%_100%] animate-gradient"
-              )}
-              data-testid="button-scan-sharepoint"
-            >
-              {isScanning ? (
-                <>
-                  <Sparkles className="h-3 w-3 mr-1 animate-pulse" />
-                  <span className="relative">AI Scanning...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3 w-3 mr-1" />
-                  AI Scan Folder
-                </>
-              )}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => refetchScan()}
+                  disabled={isScanning}
+                  className={cn(
+                    "h-7 text-xs relative overflow-hidden bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20",
+                    isScanning && "bg-gradient-to-r from-primary via-purple-600 to-primary bg-[length:200%_100%] animate-gradient"
+                  )}
+                  data-testid="button-scan-sharepoint"
+                >
+                  {isScanning ? (
+                    <>
+                      <Sparkles className="h-3 w-3 mr-1 animate-pulse" />
+                      <span className="relative">AI Scanning...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      AI Scan Folder
+                    </>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Scan SharePoint folder for new PST email files</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           {scanResults?.error && (
@@ -550,20 +557,27 @@ export default function EDiscovery() {
                 {scanResults.newPstFiles.map((file) => (
                   <Badge key={file.id} variant="outline" className="gap-2">
                     {file.name}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-4 w-4 p-0"
-                      onClick={() => ingestFromSharePointMutation.mutate(file)}
-                      disabled={ingestFromSharePointMutation.isPending}
-                      data-testid={`button-ingest-${file.name}`}
-                    >
-                      {ingestFromSharePointMutation.isPending ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Download className="h-3 w-3" />
-                      )}
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-4 w-4 p-0"
+                          onClick={() => ingestFromSharePointMutation.mutate(file)}
+                          disabled={ingestFromSharePointMutation.isPending}
+                          data-testid={`button-ingest-${file.name}`}
+                        >
+                          {ingestFromSharePointMutation.isPending ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Download className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Download and process this PST file</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </Badge>
                 ))}
               </div>
@@ -597,30 +611,37 @@ export default function EDiscovery() {
                           <span className="text-xs text-muted-foreground">
                             Added {new Date(upload.createdAt).toLocaleString()}
                           </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              try {
-                                await apiRequest('POST', `/api/ediscovery/retry-upload/${upload.id}`, {});
-                                toast({
-                                  title: "Processing Restarted",
-                                  description: "File processing has been restarted.",
-                                });
-                                refetchUploads();
-                              } catch (error) {
-                                toast({
-                                  title: "Retry Failed",
-                                  description: "Could not restart processing.",
-                                  variant: "destructive",
-                                });
-                              }
-                            }}
-                            data-testid={`button-retry-${upload.filename}`}
-                          >
-                            <RefreshCw className="h-3 w-3 mr-1" />
-                            Retry
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  try {
+                                    await apiRequest('POST', `/api/ediscovery/retry-upload/${upload.id}`, {});
+                                    toast({
+                                      title: "Processing Restarted",
+                                      description: "File processing has been restarted.",
+                                    });
+                                    refetchUploads();
+                                  } catch (error) {
+                                    toast({
+                                      title: "Retry Failed",
+                                      description: "Could not restart processing.",
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                                data-testid={`button-retry-${upload.filename}`}
+                              >
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Retry
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Retry processing this failed file</p>
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                       </div>
                       {upload.error && (
@@ -685,19 +706,26 @@ export default function EDiscovery() {
                     data-testid="input-ai-search"
                   />
                 </div>
-                <Button
-                  onClick={handleAiSearch}
-                  disabled={isAiSearching || !aiQuery.trim()}
-                  variant="outline"
-                  className="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20 font-semibold"
-                  data-testid="button-search"
-                >
-                  {isAiSearching ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <><Sparkles className="h-4 w-4 mr-2" /> Search</>
-                  )}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={handleAiSearch}
+                      disabled={isAiSearching || !aiQuery.trim()}
+                      variant="outline"
+                      className="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20 font-semibold"
+                      data-testid="button-search"
+                    >
+                      {isAiSearching ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <><Sparkles className="h-4 w-4 mr-2" /> Search</>
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>AI-powered semantic search using keywords and context</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
 
               {/* Advanced Filters - Single Row */}
@@ -705,19 +733,26 @@ export default function EDiscovery() {
                 <div className="w-[140px]">
                   <Label className="text-xs text-muted-foreground">From</Label>
                   <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "h-8 w-full justify-start text-left font-normal text-xs px-2",
-                          !dateFrom && "text-muted-foreground"
-                        )}
-                        data-testid="button-date-from"
-                      >
-                        <CalendarIcon className="mr-1 h-3 w-3" />
-                        {dateFrom ? format(dateFrom, "dd MMM yy") : "Date"}
-                      </Button>
-                    </PopoverTrigger>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              "h-8 w-full justify-start text-left font-normal text-xs px-2",
+                              !dateFrom && "text-muted-foreground"
+                            )}
+                            data-testid="button-date-from"
+                          >
+                            <CalendarIcon className="mr-1 h-3 w-3" />
+                            {dateFrom ? format(dateFrom, "dd MMM yy") : "Date"}
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Filter emails from this date onwards</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <PopoverContent className="w-auto p-0 z-50" align="start">
                       <div className="bg-popover">
                         <Calendar
@@ -751,19 +786,26 @@ export default function EDiscovery() {
                 <div className="w-[140px]">
                   <Label className="text-xs text-muted-foreground">To</Label>
                   <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "h-8 w-full justify-start text-left font-normal text-xs px-2",
-                          !dateTo && "text-muted-foreground"
-                        )}
-                        data-testid="button-date-to"
-                      >
-                        <CalendarIcon className="mr-1 h-3 w-3" />
-                        {dateTo ? format(dateTo, "dd MMM yy") : "Date"}
-                      </Button>
-                    </PopoverTrigger>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              "h-8 w-full justify-start text-left font-normal text-xs px-2",
+                              !dateTo && "text-muted-foreground"
+                            )}
+                            data-testid="button-date-to"
+                          >
+                            <CalendarIcon className="mr-1 h-3 w-3" />
+                            {dateTo ? format(dateTo, "dd MMM yy") : "Date"}
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Filter emails up to this date</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <PopoverContent className="w-auto p-0 z-50" align="start">
                       <div className="bg-popover">
                         <Calendar
@@ -796,31 +838,47 @@ export default function EDiscovery() {
                 </div>
                 <div className="w-[180px]">
                   <Label className="text-xs text-muted-foreground">Sender Email</Label>
-                  <Select value={senderFilter} onValueChange={setSenderFilter}>
-                    <SelectTrigger className="h-8 text-sm" data-testid="select-sender">
-                      <SelectValue placeholder="All senders" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All senders</SelectItem>
-                      {sendersList.map((sender) => (
-                        <SelectItem key={sender} value={sender}>
-                          {sender}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div>
+                        <Select value={senderFilter} onValueChange={setSenderFilter}>
+                          <SelectTrigger className="h-8 text-sm" data-testid="select-sender">
+                            <SelectValue placeholder="All senders" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All senders</SelectItem>
+                            {sendersList.map((sender) => (
+                              <SelectItem key={sender} value={sender}>
+                                {sender}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Filter emails by sender address</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                <div className="flex items-center gap-2 h-8">
-                  <Checkbox
-                    id="has-attachments"
-                    checked={hasAttachmentsFilter === true}
-                    onCheckedChange={(checked) => setHasAttachmentsFilter(checked === true ? true : undefined)}
-                    data-testid="checkbox-attachments"
-                  />
-                  <Label htmlFor="has-attachments" className="text-xs text-muted-foreground cursor-pointer">
-                    <Paperclip className="h-3 w-3" />
-                  </Label>
-                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 h-8">
+                      <Checkbox
+                        id="has-attachments"
+                        checked={hasAttachmentsFilter === true}
+                        onCheckedChange={(checked) => setHasAttachmentsFilter(checked === true ? true : undefined)}
+                        data-testid="checkbox-attachments"
+                      />
+                      <Label htmlFor="has-attachments" className="text-xs text-muted-foreground cursor-pointer">
+                        <Paperclip className="h-3 w-3" />
+                      </Label>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Show only emails with attachments</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
 
               {/* Email count display */}

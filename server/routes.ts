@@ -11495,6 +11495,140 @@ CRITICAL REQUIREMENTS:
     }
   });
 
+  // === WORKSHEET ITEMS ROUTES ===
+
+  // Get all items for a worksheet
+  app.get('/api/projects/:projectId/worksheets/:worksheetId/items', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId, worksheetId } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const { worksheetItems } = await import('@shared/schema');
+      
+      const items = await db
+        .select()
+        .from(worksheetItems)
+        .where(eq(worksheetItems.worksheetId, worksheetId));
+
+      res.json(items);
+    } catch (error) {
+      console.error('Error fetching worksheet items:', error);
+      res.status(500).json({ error: 'Failed to fetch worksheet items' });
+    }
+  });
+
+  // Create a new worksheet item
+  app.post('/api/projects/:projectId/worksheets/:worksheetId/items', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId, worksheetId } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const { worksheetItems, insertWorksheetItemSchema } = await import('@shared/schema');
+      
+      const validated = insertWorksheetItemSchema.parse({
+        ...req.body,
+        worksheetId,
+      });
+
+      const [item] = await db
+        .insert(worksheetItems)
+        .values(validated)
+        .returning();
+
+      res.status(201).json(item);
+    } catch (error: any) {
+      console.error('Error creating worksheet item:', error);
+      res.status(500).json({ error: 'Failed to create worksheet item' });
+    }
+  });
+
+  // Update a worksheet item
+  app.patch('/api/projects/:projectId/worksheets/:worksheetId/items/:id', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId, worksheetId, id } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const { worksheetItems, insertWorksheetItemSchema } = await import('@shared/schema');
+
+      // Validate and parse request body with partial schema
+      const validated = insertWorksheetItemSchema.partial().parse(req.body);
+
+      // Update with ownership check - only allow updating items that belong to this worksheet
+      const [item] = await db
+        .update(worksheetItems)
+        .set({
+          ...validated,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(worksheetItems.id, id),
+          eq(worksheetItems.worksheetId, worksheetId)
+        ))
+        .returning();
+
+      if (!item) {
+        return res.status(404).json({ error: 'Worksheet item not found' });
+      }
+
+      res.json(item);
+    } catch (error: any) {
+      console.error('Error updating worksheet item:', error);
+      res.status(500).json({ error: 'Failed to update worksheet item' });
+    }
+  });
+
+  // Delete a worksheet item
+  app.delete('/api/projects/:projectId/worksheets/:worksheetId/items/:id', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId, worksheetId, id } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const { worksheetItems } = await import('@shared/schema');
+
+      // Delete with ownership check - only allow deleting items that belong to this worksheet
+      const [item] = await db
+        .delete(worksheetItems)
+        .where(and(
+          eq(worksheetItems.id, id),
+          eq(worksheetItems.worksheetId, worksheetId)
+        ))
+        .returning();
+
+      if (!item) {
+        return res.status(404).json({ error: 'Worksheet item not found' });
+      }
+
+      res.json(item);
+    } catch (error) {
+      console.error('Error deleting worksheet item:', error);
+      res.status(500).json({ error: 'Failed to delete worksheet item' });
+    }
+  });
+
   // Worksheets Excel import - preview
   app.post('/api/projects/:projectId/worksheets/import/preview', isAuthenticated, upload.single('file'), async (req, res) => {
     try {

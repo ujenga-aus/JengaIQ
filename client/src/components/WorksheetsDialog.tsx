@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, Plus, Trash2, Upload } from 'lucide-react';
+import { X, Plus, Trash2, Upload, FileText } from 'lucide-react';
 import Draggable from 'react-draggable';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useWorksheetsWebSocket } from '@/hooks/useWorksheetsWebSocket';
 import { WorksheetsImportDialog } from './WorksheetsImportDialog';
+import WorksheetItemsDialog from './WorksheetItemsDialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -70,6 +71,7 @@ export function WorksheetsDialog({
   const [size, setSize] = useState({ width: 700, height: 500 });
   const [initialPosition, setInitialPosition] = useState({ x: 0, y: 0 });
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [selectedWorksheet, setSelectedWorksheet] = useState<Worksheet | null>(null);
 
   // Load saved position/size/column widths from localStorage when dialog opens
   useEffect(() => {
@@ -825,19 +827,34 @@ export function WorksheetsDialog({
                               </td>
                             );
                           })}
-                          <td className="p-2 w-12">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(worksheet.id);
-                              }}
-                              className="h-7 w-7"
-                              data-testid={`button-delete-worksheet-${worksheet.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                          <td className="p-2 w-24">
+                            <div className="flex gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedWorksheet(worksheet);
+                                }}
+                                className="h-7 w-7"
+                                data-testid={`button-view-items-${worksheet.id}`}
+                                title="View worksheet items"
+                              >
+                                <FileText className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(worksheet.id);
+                                }}
+                                className="h-7 w-7"
+                                data-testid={`button-delete-worksheet-${worksheet.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       </ContextMenuTrigger>
@@ -890,6 +907,17 @@ export function WorksheetsDialog({
           });
         }}
       />
+
+      {selectedWorksheet && (
+        <WorksheetItemsDialog
+          open={!!selectedWorksheet}
+          onOpenChange={(open) => !open && setSelectedWorksheet(null)}
+          projectId={projectId}
+          worksheetId={selectedWorksheet.id}
+          worksheetCode={selectedWorksheet.wkshtCode}
+          worksheetDescription={selectedWorksheet.description || ''}
+        />
+      )}
     </div>
   );
 }

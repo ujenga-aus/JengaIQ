@@ -1683,6 +1683,31 @@ export const insertWorksheetSchema = createInsertSchema(worksheets).omit({
 export type InsertWorksheet = z.infer<typeof insertWorksheetSchema>;
 export type Worksheet = typeof worksheets.$inferSelect;
 
+// Worksheet Items - line items that belong to worksheets
+export const worksheetItems = pgTable("worksheet_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  worksheetId: varchar("worksheet_id").notNull().references(() => worksheets.id, { onDelete: "cascade" }),
+  lq: numeric("lq", { precision: 15, scale: 2 }),
+  description: text("description"),
+  formula: text("formula"),
+  resourceRateId: varchar("resource_rate_id").references(() => resourceRates.id, { onDelete: "set null" }),
+  qty: numeric("qty", { precision: 15, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  worksheetIdx: index("worksheet_items_worksheet_idx").on(table.worksheetId),
+  resourceRateIdx: index("worksheet_items_resource_rate_idx").on(table.resourceRateId),
+}));
+
+export const insertWorksheetItemSchema = createInsertSchema(worksheetItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertWorksheetItem = z.infer<typeof insertWorksheetItemSchema>;
+export type WorksheetItem = typeof worksheetItems.$inferSelect;
+
 // === CONTRACT VIEWER SYSTEM ===
 
 // Contract Clauses - AI-extracted clause headings per contract revision

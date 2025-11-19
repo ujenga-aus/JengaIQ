@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, Plus, Trash2, Upload, FileText } from 'lucide-react';
+import { X, Plus, Trash2, Upload, FileText, GripVertical } from 'lucide-react';
 import Draggable from 'react-draggable';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
@@ -16,6 +16,24 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 interface WorksheetsDialogProps {
   open: boolean;
@@ -29,8 +47,200 @@ interface Worksheet {
   wkshtCode: string;
   description: string | null;
   unit: string | null;
+  sortingIndex: number;
   createdAt: string;
   updatedAt: string;
+}
+
+// SortableRow component for drag-and-drop with inline editing
+function SortableRow({
+  worksheet,
+  editingCell,
+  selectedCell,
+  onCellClick,
+  onCellDoubleClick,
+  onFieldChange,
+  onViewItems,
+  onDelete,
+  virtualRow,
+  measureElement,
+}: {
+  worksheet: Worksheet;
+  editingCell: { id: string; field: string } | null;
+  selectedCell: { id: string; field: string } | null;
+  onCellClick: (id: string, field: string) => void;
+  onCellDoubleClick: (id: string, field: string, currentValue: string | null) => void;
+  onFieldChange: (id: string, field: string, value: string) => void;
+  onViewItems: (worksheet: Worksheet) => void;
+  onDelete: (id: string) => void;
+  virtualRow?: { index: number; start: number; size: number; key: string | number | bigint };
+  measureElement?: (node: Element | null) => void;
+}) {
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const editableFields = ['wkshtCode', 'description', 'unit'];
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: worksheet.id });
+
+  // Merge virtual positioning with DnD transform
+  const dndTransform = CSS.Transform.toString(transform);
+  
+  // Build transform array to avoid 'none' concatenation issues
+  const transforms: string[] = [];
+  if (virtualRow) {
+    transforms.push(`translate3d(0, ${virtualRow.start}px, 0)`);
+  }
+  if (dndTransform && dndTransform !== 'none') {
+    transforms.push(dndTransform);
+  }
+  
+  const style: React.CSSProperties = virtualRow ? {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: `${virtualRow.size}px`,
+    transform: transforms.join(' ') || undefined,
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  } : {
+    transform: dndTransform,
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  // Merge setNodeRef and measureElement callbacks
+  const mergedRef = useCallback((node: HTMLTableRowElement | null) => {
+    setNodeRef(node);
+    if (measureElement && node) {
+      measureElement(node);
+    }
+  }, [setNodeRef, measureElement]);
+
+  // Focus on input when editing starts
+  useEffect(() => {
+    if (editingCell?.id === worksheet.id && inputRef.current) {
+      const field = editingCell.field;
+      const value = worksheet[field as keyof Worksheet] as string | null;
+      setEditValue(value || '');
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingCell, worksheet]);
+
+  const handleSave = (field: string) => {
+    onFieldChange(worksheet.id, field, editValue);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, field: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave(field);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCellClick(worksheet.id, field);
+    }
+  };
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <tr 
+          ref={mergedRef} 
+          style={style} 
+          data-testid={`row-worksheet-${worksheet.id}`}
+          className="border-b hover-elevate"
+        >
+          {/* Drag handle */}
+          <td className="p-2 w-8">
+            <div className="cursor-grab active:cursor-grabbing" {...attributes} {...listeners}>
+              <GripVertical className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </td>
+
+          {/* Editable fields */}
+          {editableFields.map((field) => {
+            const isEditing = editingCell?.id === worksheet.id && editingCell?.field === field;
+            const isSelected = selectedCell?.id === worksheet.id && selectedCell?.field === field;
+            const value = worksheet[field as keyof Worksheet] as string | null;
+            
+            return (
+              <td
+                key={field}
+                className={`p-2 cursor-pointer ${isSelected ? 'ring-2 ring-primary ring-inset' : ''}`}
+                onClick={() => onCellClick(worksheet.id, field)}
+                onDoubleClick={() => onCellDoubleClick(worksheet.id, field, value)}
+                data-testid={`cell-${field}-${worksheet.id}`}
+              >
+                {isEditing ? (
+                  <Input
+                    ref={inputRef}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={() => handleSave(field)}
+                    onKeyDown={(e) => handleKeyDown(e, field)}
+                    className="text-data h-auto py-0.5 px-2 border-0 focus-visible:ring-0 bg-background"
+                    data-testid={`input-edit-${field}`}
+                  />
+                ) : (
+                  <span className="text-data block truncate">
+                    {value || ''}
+                  </span>
+                )}
+              </td>
+            );
+          })}
+
+          {/* Action buttons */}
+          <td className="p-2 w-24">
+            <div className="flex gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewItems(worksheet);
+                }}
+                className="h-7 w-7"
+                data-testid={`button-view-items-${worksheet.id}`}
+                title="View worksheet items"
+              >
+                <FileText className="h-4 w-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(worksheet.id);
+                }}
+                className="h-7 w-7"
+                data-testid={`button-delete-worksheet-${worksheet.id}`}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </div>
+          </td>
+        </tr>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          onClick={() => onDelete(worksheet.id)}
+          className="text-destructive"
+          data-testid={`menu-delete-${worksheet.id}`}
+        >
+          Delete Worksheet
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
 }
 
 export function WorksheetsDialog({
@@ -42,7 +252,6 @@ export function WorksheetsDialog({
   const { toast } = useToast();
   const [selectedCell, setSelectedCell] = useState<{ id: string; field: string } | null>(null);
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
-  const [editValue, setEditValue] = useState('');
   const [showNewRow, setShowNewRow] = useState(false);
   const [sortColumn, setSortColumn] = useState<keyof Worksheet | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -59,12 +268,11 @@ export function WorksheetsDialog({
   });
   const [resizingColumn, setResizingColumn] = useState<string | null>(null);
   const columnResizeRef = useRef<{ column: string; startX: number; startWidth: number; nextColumn?: string; nextStartWidth?: number } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number } | null>(null);
   const isEscapingGrid = useRef(false);
-  const shouldSelectText = useRef(true);
-  const isSaving = useRef(false);
+  const saveTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const parentRef = useRef<HTMLDivElement>(null);
   
   const positionRef = useRef({ x: 0, y: 0 });
   const sizeRef = useRef({ width: 700, height: 500 });
@@ -72,6 +280,13 @@ export function WorksheetsDialog({
   const [initialPosition, setInitialPosition] = useState({ x: 0, y: 0 });
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [selectedWorksheet, setSelectedWorksheet] = useState<Worksheet | null>(null);
+
+  // Cleanup pending save timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(saveTimerRef.current).forEach(timer => clearTimeout(timer));
+    };
+  }, []);
 
   // Load saved position/size/column widths from localStorage when dialog opens
   useEffect(() => {
@@ -135,13 +350,16 @@ export function WorksheetsDialog({
     enabled: open && !!projectId,
   });
 
-  // Apply client-side sorting
+  // Apply client-side sorting - default to sortingIndex if no column sort selected
   const worksheets = useMemo(() => {
+    let sorted = [...fetchedWorksheets];
+    
     if (!sortColumn) {
-      return fetchedWorksheets;
+      // Default sort by sortingIndex
+      return sorted.sort((a, b) => a.sortingIndex - b.sortingIndex);
     }
 
-    return [...fetchedWorksheets].sort((a, b) => {
+    return sorted.sort((a, b) => {
       const aVal = a[sortColumn];
       const bVal = b[sortColumn];
       
@@ -158,6 +376,15 @@ export function WorksheetsDialog({
       return sortDirection === 'asc' ? comparison : -comparison;
     });
   }, [fetchedWorksheets, sortColumn, sortDirection]);
+
+  // Setup row virtualization for performance with large lists
+  const rowVirtualizer = useVirtualizer({
+    count: worksheets?.length ?? 0,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 40,
+    overscan: 10,
+    getItemKey: (index) => worksheets?.[index]?.id ?? String(index),
+  });
 
   // WebSocket subscription for real-time updates
   const { isConnected } = useWorksheetsWebSocket(open ? projectId : null);
@@ -198,29 +425,72 @@ export function WorksheetsDialog({
     },
   });
 
-  // Update mutation
+  // Update mutation (with showToast option for debounced saves)
   const updateMutation = useMutation({
-    mutationFn: async ({ id, field, value }: { id: string; field: string; value: string }) => {
+    mutationFn: async ({ id, updates, showToast = false }: { id: string; updates: Partial<Worksheet>; showToast?: boolean }) => {
       const response = await apiRequest(
         'PATCH',
         `/api/projects/${projectId}/worksheets/${id}`,
-        { [field]: value }
+        updates
       );
-      return await response.json() as Worksheet;
+      return { data: await response.json() as Worksheet, showToast };
     },
-    onSuccess: (updatedWorksheet: Worksheet) => {
-      queryClient.setQueryData(
+    onMutate: async ({ id, updates }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({
+        queryKey: ['/api/projects', projectId, 'worksheets'],
+      });
+
+      // Snapshot the previous value
+      const previousWorksheets = queryClient.getQueryData<Worksheet[]>([
+        '/api/projects',
+        projectId,
+        'worksheets',
+      ]);
+
+      // Optimistically update to the new value
+      queryClient.setQueryData<Worksheet[]>(
         ['/api/projects', projectId, 'worksheets'],
-        (oldData: any) => {
-          if (!oldData) return oldData;
-          return oldData.map((worksheet: Worksheet) =>
-            worksheet.id === updatedWorksheet.id ? updatedWorksheet : worksheet
+        (old) => {
+          if (!old) return old;
+          return old.map((worksheet) =>
+            worksheet.id === id ? { ...worksheet, ...updates } : worksheet
           );
         }
       );
-      setEditingCell(null);
+
+      return { previousWorksheets };
     },
-    onError: (error: any) => {
+    onSuccess: ({ data, showToast }) => {
+      // Update cache with server response to ensure consistency
+      queryClient.setQueryData<Worksheet[]>(
+        ['/api/projects', projectId, 'worksheets'],
+        (old) => {
+          if (!old) return old;
+          return old.map((worksheet) =>
+            worksheet.id === data.id ? data : worksheet
+          );
+        }
+      );
+      
+      setEditingCell(null);
+      
+      if (showToast) {
+        toast({
+          title: 'Worksheet updated',
+          description: 'Changes saved successfully.',
+        });
+      }
+    },
+    onError: (error: any, variables, context) => {
+      // Rollback on error
+      if (context?.previousWorksheets) {
+        queryClient.setQueryData(
+          ['/api/projects', projectId, 'worksheets'],
+          context.previousWorksheets
+        );
+      }
+      
       const errorMessage = error.message?.includes('already exists') 
         ? 'Code already exists for this project. Please use a unique code.'
         : error.message || 'Failed to update worksheet.';
@@ -230,7 +500,70 @@ export function WorksheetsDialog({
         description: errorMessage,
         variant: 'destructive',
       });
-      
+    },
+    onSettled: () => {
+      // Refetch to sync with server
+      queryClient.invalidateQueries({
+        queryKey: ['/api/projects', projectId, 'worksheets'],
+      });
+    },
+  });
+
+  // Reorder mutation for drag-and-drop
+  const reorderMutation = useMutation({
+    mutationFn: async ({ reorderedItems }: { reorderedItems: { id: string; sortingIndex: number }[] }) => {
+      return await apiRequest(
+        'PATCH',
+        `/api/projects/${projectId}/worksheets/reorder`,
+        { worksheets: reorderedItems }
+      );
+    },
+    onMutate: async ({ reorderedItems }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({
+        queryKey: ['/api/projects', projectId, 'worksheets'],
+      });
+
+      // Snapshot the previous value
+      const previousWorksheets = queryClient.getQueryData<Worksheet[]>([
+        '/api/projects',
+        projectId,
+        'worksheets',
+      ]);
+
+      // Create optimistic items with updated sortingIndex
+      const reorderedMap = new Map(reorderedItems.map(item => [item.id, item.sortingIndex]));
+      const optimisticWorksheets = previousWorksheets?.map(ws => ({
+        ...ws,
+        sortingIndex: reorderedMap.get(ws.id) ?? ws.sortingIndex,
+      }));
+
+      // Optimistically update to the new order
+      if (optimisticWorksheets) {
+        queryClient.setQueryData<Worksheet[]>(
+          ['/api/projects', projectId, 'worksheets'],
+          optimisticWorksheets
+        );
+      }
+
+      return { previousWorksheets };
+    },
+    onError: (error: any, variables, context) => {
+      // Rollback on error
+      if (context?.previousWorksheets) {
+        queryClient.setQueryData(
+          ['/api/projects', projectId, 'worksheets'],
+          context.previousWorksheets
+        );
+      }
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to reorder worksheets.',
+        variant: 'destructive',
+      });
+    },
+    onSettled: () => {
+      // Refetch to sync with server
       queryClient.invalidateQueries({
         queryKey: ['/api/projects', projectId, 'worksheets'],
       });
@@ -263,16 +596,64 @@ export function WorksheetsDialog({
     },
   });
 
-  // Focus on input when editing starts
-  useEffect(() => {
-    if (editingCell && inputRef.current) {
-      inputRef.current.focus();
-      if (shouldSelectText.current && typeof inputRef.current.select === 'function') {
-        inputRef.current.select();
-      }
-      shouldSelectText.current = true;
+  // DnD sensors for drag-and-drop
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end - matching BOQTab.tsx pattern
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || !worksheets || sortColumn !== null) return;
+
+    if (active.id !== over.id) {
+      const oldIndex = worksheets.findIndex((worksheet) => worksheet.id === active.id);
+      const newIndex = worksheets.findIndex((worksheet) => worksheet.id === over.id);
+
+      // Reorder array and calculate new sortingIndex values
+      const reordered = arrayMove(worksheets, oldIndex, newIndex);
+      const reorderedItems = reordered.map((worksheet, index) => ({
+        id: worksheet.id,
+        sortingIndex: index,
+      }));
+
+      // Persist reordered items to server with correct payload structure
+      reorderMutation.mutate({ reorderedItems });
     }
-  }, [editingCell]);
+  };
+
+  // Handle inline field update with debouncing (300ms)
+  const handleFieldChange = (id: string, field: string, value: string) => {
+    // Clear existing timer for this worksheet
+    if (saveTimerRef.current[id]) {
+      clearTimeout(saveTimerRef.current[id]);
+    }
+    
+    // Immediately update UI optimistically
+    queryClient.setQueryData<Worksheet[]>(
+      ['/api/projects', projectId, 'worksheets'],
+      (old) => {
+        if (!old) return old;
+        return old.map((worksheet) =>
+          worksheet.id === id ? { ...worksheet, [field]: value } : worksheet
+        );
+      }
+    );
+    
+    // Exit edit mode
+    setEditingCell(null);
+    
+    // Debounce the actual server save (300ms) - matching BOQTab.tsx pattern
+    saveTimerRef.current[id] = setTimeout(() => {
+      // Persist to server via mutation with correct parameter format
+      updateMutation.mutate({ id, updates: { [field]: value }, showToast: false });
+      delete saveTimerRef.current[id];
+    }, 300);
+  };
   
   // Initialize selected cell when dialog opens with data
   useEffect(() => {
@@ -300,7 +681,6 @@ export function WorksheetsDialog({
 
   const handleCellDoubleClick = (id: string, field: string, currentValue: string | null) => {
     setEditingCell({ id, field });
-    setEditValue(currentValue || '');
   };
 
   // Excel-like keyboard navigation
@@ -391,88 +771,6 @@ export function WorksheetsDialog({
         e.preventDefault();
         navigateCell(e.shiftKey ? 'left' : 'right');
       }
-    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      if (selectedCell) {
-        const worksheet = worksheets.find(w => w.id === selectedCell.id);
-        if (worksheet) {
-          shouldSelectText.current = false;
-          setEditingCell({ id: worksheet.id, field: selectedCell.field });
-          setEditValue(e.key);
-        }
-      }
-    }
-  };
-
-  const handleCellKeyDown = (e: React.KeyboardEvent) => {
-    e.stopPropagation();
-    
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      
-      if (!editingCell) return;
-      
-      isSaving.current = true;
-      const currentValue = editValue;
-      
-      updateMutation.mutate({ 
-        id: editingCell.id, 
-        field: editingCell.field, 
-        value: currentValue 
-      });
-      
-      setEditingCell(null);
-      
-      if (selectedCell) {
-        setTimeout(() => {
-          navigateCell('enter');
-          isSaving.current = false;
-        }, 0);
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      isSaving.current = false;
-      setEditingCell(null);
-    } else if (e.key === 'Tab') {
-      if (selectedCell) {
-        const { id, field } = selectedCell;
-        const rowIndex = worksheets.findIndex(w => w.id === id);
-        if (rowIndex === -1) return;
-        const maxRow = worksheets.length - 1;
-        const currentFieldIndex = editableFields.indexOf(field);
-        const isAtStart = rowIndex === 0 && currentFieldIndex === 0;
-        const isAtEnd = rowIndex === maxRow && currentFieldIndex === editableFields.length - 1;
-        
-        if ((e.shiftKey && isAtStart) || (!e.shiftKey && isAtEnd)) {
-          isEscapingGrid.current = true;
-          isSaving.current = true;
-          handleSaveCell();
-          return;
-        }
-        
-        e.preventDefault();
-        isSaving.current = true;
-        handleSaveCell();
-        navigateCell(e.shiftKey ? 'left' : 'right');
-      }
-    }
-  };
-
-  const handleSaveCell = (valueOverride?: string | React.FocusEvent) => {
-    if (isSaving.current && valueOverride && typeof valueOverride !== 'string') {
-      isSaving.current = false;
-      return;
-    }
-    
-    if (editingCell) {
-      const valueToSave = typeof valueOverride === 'string' ? valueOverride : editValue;
-      updateMutation.mutate({ 
-        id: editingCell.id, 
-        field: editingCell.field, 
-        value: valueToSave 
-      });
-      setEditingCell(null);
-      isSaving.current = false;
     }
   };
   
@@ -623,6 +921,9 @@ export function WorksheetsDialog({
 
   if (!open) return null;
 
+  const isDragEnabled = sortColumn === null;
+  const virtualItems = rowVirtualizer.getVirtualItems();
+
   return (
     <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm">
       <Draggable
@@ -687,200 +988,155 @@ export function WorksheetsDialog({
           {/* Table */}
           <div className="flex-1 overflow-hidden">
             <div 
-              ref={tableContainerRef}
+              ref={parentRef}
               className="h-full overflow-auto focus:outline-none"
               onKeyDown={handleTableKeyDown}
               tabIndex={0}
             >
-              <table className="w-full border-collapse">
-                <thead className="sticky top-0 bg-muted z-10">
-                  <tr>
-                    <th
-                      className="text-data font-medium text-left p-2 border-b cursor-pointer hover-elevate relative select-none"
-                      style={{ width: `${columnWidths.wkshtCode}px`, minWidth: `${columnWidths.wkshtCode}px` }}
-                      onClick={() => handleColumnHeaderClick('wkshtCode')}
-                      data-testid="header-wkshtCode"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span>Code</span>
-                        {sortColumn === 'wkshtCode' && (
-                          <span className="text-xs ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                        )}
-                      </div>
-                      <div
-                        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50"
-                        onMouseDown={(e) => handleColumnMouseDown(e, 'wkshtCode')}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </th>
-                    <th
-                      className="text-data font-medium text-left p-2 border-b cursor-pointer hover-elevate relative select-none"
-                      style={{ width: `${columnWidths.description}px`, minWidth: `${columnWidths.description}px` }}
-                      onClick={() => handleColumnHeaderClick('description')}
-                      data-testid="header-description"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span>Description</span>
-                        {sortColumn === 'description' && (
-                          <span className="text-xs ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                        )}
-                      </div>
-                      <div
-                        className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50"
-                        onMouseDown={(e) => handleColumnMouseDown(e, 'description')}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </th>
-                    <th
-                      className="text-data font-medium text-left p-2 border-b cursor-pointer hover-elevate select-none"
-                      style={{ width: `${columnWidths.unit}px`, minWidth: `${columnWidths.unit}px` }}
-                      onClick={() => handleColumnHeaderClick('unit')}
-                      data-testid="header-unit"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span>Unit</span>
-                        {sortColumn === 'unit' && (
-                          <span className="text-xs ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                        )}
-                      </div>
-                    </th>
-                    <th className="text-data font-medium text-left p-2 border-b w-12">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {showNewRow && (
-                    <tr className="border-b bg-muted/30">
-                      <td className="p-2" style={{ width: `${columnWidths.wkshtCode}px` }}>
-                        <Input
-                          placeholder="Code"
-                          value={newRowData.wkshtCode}
-                          onChange={(e) => setNewRowData({ ...newRowData, wkshtCode: e.target.value })}
-                          onKeyDown={(e) => handleNewRowKeyDown(e)}
-                          className="text-data"
-                          data-testid="input-new-wkshtCode"
-                          autoFocus
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <table className="w-full border-collapse">
+                  <thead className="sticky top-0 bg-muted z-10">
+                    <tr>
+                      <th className="text-data font-medium text-left p-2 border-b w-8">
+                        <span className="sr-only">Drag</span>
+                      </th>
+                      <th
+                        className="text-data font-medium text-left p-2 border-b cursor-pointer hover-elevate relative select-none"
+                        style={{ width: `${columnWidths.wkshtCode}px`, minWidth: `${columnWidths.wkshtCode}px` }}
+                        onClick={() => handleColumnHeaderClick('wkshtCode')}
+                        data-testid="header-wkshtCode"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>Code</span>
+                          {sortColumn === 'wkshtCode' && (
+                            <span className="text-xs ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                          )}
+                        </div>
+                        <div
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50"
+                          onMouseDown={(e) => handleColumnMouseDown(e, 'wkshtCode')}
+                          onClick={(e) => e.stopPropagation()}
                         />
-                      </td>
-                      <td className="p-2" style={{ width: `${columnWidths.description}px` }}>
-                        <Input
-                          placeholder="Description"
-                          value={newRowData.description}
-                          onChange={(e) => setNewRowData({ ...newRowData, description: e.target.value })}
-                          onKeyDown={(e) => handleNewRowKeyDown(e)}
-                          className="text-data"
-                          data-testid="input-new-description"
+                      </th>
+                      <th
+                        className="text-data font-medium text-left p-2 border-b cursor-pointer hover-elevate relative select-none"
+                        style={{ width: `${columnWidths.description}px`, minWidth: `${columnWidths.description}px` }}
+                        onClick={() => handleColumnHeaderClick('description')}
+                        data-testid="header-description"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>Description</span>
+                          {sortColumn === 'description' && (
+                            <span className="text-xs ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                          )}
+                        </div>
+                        <div
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50"
+                          onMouseDown={(e) => handleColumnMouseDown(e, 'description')}
+                          onClick={(e) => e.stopPropagation()}
                         />
-                      </td>
-                      <td className="p-2" style={{ width: `${columnWidths.unit}px` }}>
-                        <Input
-                          placeholder="Unit"
-                          value={newRowData.unit}
-                          onChange={(e) => setNewRowData({ ...newRowData, unit: e.target.value })}
-                          onKeyDown={(e) => handleNewRowKeyDown(e, true)}
-                          className="text-data"
-                          data-testid="input-new-unit"
-                        />
-                      </td>
-                      <td className="p-2 w-12">
-                        {/* Empty cell for alignment */}
-                      </td>
+                      </th>
+                      <th
+                        className="text-data font-medium text-left p-2 border-b cursor-pointer hover-elevate select-none"
+                        style={{ width: `${columnWidths.unit}px`, minWidth: `${columnWidths.unit}px` }}
+                        onClick={() => handleColumnHeaderClick('unit')}
+                        data-testid="header-unit"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>Unit</span>
+                          {sortColumn === 'unit' && (
+                            <span className="text-xs ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+                          )}
+                        </div>
+                      </th>
+                      <th className="text-data font-medium text-left p-2 border-b w-24">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     </tr>
-                  )}
-                  {worksheets.map((worksheet) => (
-                    <ContextMenu key={worksheet.id}>
-                      <ContextMenuTrigger asChild>
-                        <tr 
-                          className="border-b hover-elevate cursor-pointer"
-                          data-testid={`row-worksheet-${worksheet.id}`}
-                        >
-                          {editableFields.map((field) => {
-                            const isEditing = editingCell?.id === worksheet.id && editingCell?.field === field;
-                            const isSelected = selectedCell?.id === worksheet.id && selectedCell?.field === field;
-                            const value = worksheet[field as keyof Worksheet] as string | null;
-                            
-                            return (
-                              <td
-                                key={field}
-                                className={`p-2 ${isSelected ? 'ring-2 ring-primary ring-inset' : ''}`}
-                                style={{ width: `${columnWidths[field]}px` }}
-                                onClick={() => handleCellClick(worksheet.id, field)}
-                                onDoubleClick={() => handleCellDoubleClick(worksheet.id, field, value)}
-                                data-testid={`cell-${field}-${worksheet.id}`}
-                              >
-                                {isEditing ? (
-                                  <Input
-                                    ref={inputRef}
-                                    value={editValue}
-                                    onChange={(e) => setEditValue(e.target.value)}
-                                    onBlur={handleSaveCell}
-                                    onKeyDown={handleCellKeyDown}
-                                    className="text-data h-auto py-0.5 px-2 border-0 focus-visible:ring-0 bg-background"
-                                    data-testid={`input-edit-${field}`}
-                                  />
-                                ) : (
-                                  <span className="text-data block truncate">
-                                    {value || ''}
-                                  </span>
-                                )}
-                              </td>
-                            );
-                          })}
-                          <td className="p-2 w-24">
-                            <div className="flex gap-1">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedWorksheet(worksheet);
-                                }}
-                                className="h-7 w-7"
-                                data-testid={`button-view-items-${worksheet.id}`}
-                                title="View worksheet items"
-                              >
-                                <FileText className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDelete(worksheet.id);
-                                }}
-                                className="h-7 w-7"
-                                data-testid={`button-delete-worksheet-${worksheet.id}`}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent>
-                        <ContextMenuItem
-                          onClick={() => handleDelete(worksheet.id)}
-                          className="text-destructive"
-                          data-testid={`menu-delete-${worksheet.id}`}
-                        >
-                          Delete Worksheet
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
-                  ))}
-                </tbody>
-              </table>
-              {isLoading && (
-                <div className="flex items-center justify-center p-8">
-                  <span className="text-muted-foreground text-data">Loading...</span>
-                </div>
-              )}
-              {!isLoading && worksheets.length === 0 && !showNewRow && (
-                <div className="flex items-center justify-center p-8">
-                  <span className="text-muted-foreground text-data">No worksheets yet. Add one to get started.</span>
-                </div>
-              )}
+                  </thead>
+                  <tbody style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+                    {showNewRow && (
+                      <tr className="border-b bg-muted/30" style={{ position: 'relative', zIndex: 1 }}>
+                        <td className="p-2 w-8">
+                          {/* Empty cell for drag handle alignment */}
+                        </td>
+                        <td className="p-2" style={{ width: `${columnWidths.wkshtCode}px` }}>
+                          <Input
+                            placeholder="Code"
+                            value={newRowData.wkshtCode}
+                            onChange={(e) => setNewRowData({ ...newRowData, wkshtCode: e.target.value })}
+                            onKeyDown={(e) => handleNewRowKeyDown(e)}
+                            className="text-data"
+                            data-testid="input-new-wkshtCode"
+                            autoFocus
+                          />
+                        </td>
+                        <td className="p-2" style={{ width: `${columnWidths.description}px` }}>
+                          <Input
+                            placeholder="Description"
+                            value={newRowData.description}
+                            onChange={(e) => setNewRowData({ ...newRowData, description: e.target.value })}
+                            onKeyDown={(e) => handleNewRowKeyDown(e)}
+                            className="text-data"
+                            data-testid="input-new-description"
+                          />
+                        </td>
+                        <td className="p-2" style={{ width: `${columnWidths.unit}px` }}>
+                          <Input
+                            placeholder="Unit"
+                            value={newRowData.unit}
+                            onChange={(e) => setNewRowData({ ...newRowData, unit: e.target.value })}
+                            onKeyDown={(e) => handleNewRowKeyDown(e, true)}
+                            className="text-data"
+                            data-testid="input-new-unit"
+                          />
+                        </td>
+                        <td className="p-2 w-24">
+                          {/* Empty cell for alignment */}
+                        </td>
+                      </tr>
+                    )}
+                    <SortableContext
+                      items={worksheets.map(w => w.id)}
+                      strategy={verticalListSortingStrategy}
+                      disabled={!isDragEnabled}
+                    >
+                      {virtualItems.map((virtualRow) => {
+                        const worksheet = worksheets[virtualRow.index];
+                        return (
+                          <SortableRow
+                            key={worksheet.id}
+                            worksheet={worksheet}
+                            editingCell={editingCell}
+                            selectedCell={selectedCell}
+                            onCellClick={handleCellClick}
+                            onCellDoubleClick={handleCellDoubleClick}
+                            onFieldChange={handleFieldChange}
+                            onViewItems={setSelectedWorksheet}
+                            onDelete={handleDelete}
+                            virtualRow={virtualRow}
+                            measureElement={rowVirtualizer.measureElement}
+                          />
+                        );
+                      })}
+                    </SortableContext>
+                  </tbody>
+                </table>
+                {isLoading && (
+                  <div className="flex items-center justify-center p-8">
+                    <span className="text-muted-foreground text-data">Loading...</span>
+                  </div>
+                )}
+                {!isLoading && worksheets.length === 0 && !showNewRow && (
+                  <div className="flex items-center justify-center p-8">
+                    <span className="text-muted-foreground text-data">No worksheets yet. Add one to get started.</span>
+                  </div>
+                )}
+              </DndContext>
             </div>
           </div>
 

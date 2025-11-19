@@ -11455,6 +11455,54 @@ CRITICAL REQUIREMENTS:
     }
   });
 
+  // Reorder worksheets (batch update sortingIndex)
+  app.patch('/api/projects/:projectId/worksheets/reorder', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const { worksheets } = await import('@shared/schema');
+      const { worksheets: reorderedItems } = req.body as { worksheets: { id: string; sortingIndex: number }[] };
+
+      if (!Array.isArray(reorderedItems)) {
+        return res.status(400).json({ error: 'Invalid reorder data' });
+      }
+
+      // Update all worksheets with new sortingIndex in a transaction
+      await db.transaction(async (tx) => {
+        for (const item of reorderedItems) {
+          await tx
+            .update(worksheets)
+            .set({ 
+              sortingIndex: item.sortingIndex,
+              updatedAt: new Date()
+            })
+            .where(and(
+              eq(worksheets.id, item.id),
+              eq(worksheets.projectId, projectId)
+            ));
+        }
+      });
+
+      // Broadcast WebSocket update
+      worksheetsWS.broadcastToProject(projectId, {
+        type: 'worksheets_reordered',
+        data: { projectId }
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error reordering worksheets:', error);
+      res.status(500).json({ error: 'Failed to reorder worksheets' });
+    }
+  });
+
   // Delete a worksheet
   app.delete('/api/projects/:projectId/worksheets/:id', isAuthenticated, async (req, res) => {
     try {

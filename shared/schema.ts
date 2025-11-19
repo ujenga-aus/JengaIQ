@@ -1667,6 +1667,7 @@ export const worksheets = pgTable("worksheets", {
   wkshtCode: text("wksht_code").notNull(),
   description: text("description"),
   unit: text("unit"),
+  sortingIndex: integer("sorting_index").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({

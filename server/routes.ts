@@ -5518,8 +5518,8 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
 
         // Upload to object storage (inside transaction so we can clean up on failure)
         const objectStorageService = new ObjectStorageService();
-        const fileName = `correspondence_${Date.now()}_${file.originalname}`;
-        const objectPath = await objectStorageService.uploadFile(file.buffer, fileName);
+        const objectStorageFileName = `correspondence_${Date.now()}_${fileName}`;
+        const objectPath = await objectStorageService.uploadFile(file.buffer, objectStorageFileName);
 
         // Extract text from PDF for embedding generation
         let extractedText = '';
@@ -5551,7 +5551,7 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
           .values({
             projectId,
             letterNumber: nextLetterNumber,
-            fileName: file.originalname,
+            fileName: fileName, // Use sanitized custom filename
             fileUrl: objectPath,
             fileKey: objectPath,
             extractedText,

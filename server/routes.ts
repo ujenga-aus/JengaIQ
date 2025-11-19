@@ -11281,14 +11281,17 @@ CRITICAL REQUIREMENTS:
 
   // Helper function to verify project access
   async function verifyProjectAccess(projectId: string, person: Person): Promise<boolean> {
+    console.log('[verifyProjectAccess] Starting verification:', { projectId, personId: person.id, email: person.email, isSuperAdmin: person.isSuperAdmin });
+    
     // Super admins have access to all companies
     if (person.isSuperAdmin) {
+      console.log('[verifyProjectAccess] User is super admin - access granted');
       return true;
     }
     
     const userCompanyId = person.companyId;
     if (!userCompanyId) {
-      console.log('[verifyProjectAccess] No company ID for user');
+      console.log('[verifyProjectAccess] User has no companyId - access denied:', { personId: person.id, email: person.email });
       return false;
     }
     
@@ -11299,7 +11302,7 @@ CRITICAL REQUIREMENTS:
       .limit(1);
     
     if (!project || !project.businessUnitId) {
-      console.log('[verifyProjectAccess] Project not found or missing businessUnitId');
+      console.log('[verifyProjectAccess] Project not found or missing businessUnitId:', { projectId, found: !!project, hasBusinessUnit: !!project?.businessUnitId });
       return false;
     }
     
@@ -11310,14 +11313,16 @@ CRITICAL REQUIREMENTS:
       .limit(1);
     
     if (!businessUnit) {
-      console.log('[verifyProjectAccess] Business unit not found');
+      console.log('[verifyProjectAccess] Business unit not found:', project.businessUnitId);
       return false;
     }
     
     const hasAccess = businessUnit.companyId === userCompanyId;
-    if (!hasAccess) {
-      console.log('[verifyProjectAccess] Company mismatch');
-    }
+    console.log('[verifyProjectAccess] Final check:', {
+      businessUnitCompanyId: businessUnit.companyId,
+      userCompanyId,
+      hasAccess
+    });
     
     return hasAccess;
   }

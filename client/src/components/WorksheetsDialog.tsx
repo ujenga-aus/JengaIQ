@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Trash2 } from 'lucide-react';
 import Draggable from 'react-draggable';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
@@ -731,6 +731,9 @@ export function WorksheetsDialog({
                         )}
                       </div>
                     </th>
+                    <th className="text-data font-medium text-left p-2 border-b w-12">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -766,6 +769,9 @@ export function WorksheetsDialog({
                           className="text-data"
                           data-testid="input-new-unit"
                         />
+                      </td>
+                      <td className="p-2 w-12">
+                        {/* Empty cell for alignment */}
                       </td>
                     </tr>
                   )}
@@ -808,6 +814,20 @@ export function WorksheetsDialog({
                               </td>
                             );
                           })}
+                          <td className="p-2 w-12">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(worksheet.id);
+                              }}
+                              className="h-7 w-7"
+                              data-testid={`button-delete-worksheet-${worksheet.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </td>
                         </tr>
                       </ContextMenuTrigger>
                       <ContextMenuContent>

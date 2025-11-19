@@ -15,6 +15,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ContextMenu,
@@ -227,20 +232,32 @@ function SortableRow({
           {/* Action buttons */}
           <td className="p-2 w-24">
             <div className="flex gap-1">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onViewItems(worksheet);
-                }}
-                className="h-7 w-7"
-                data-testid={`button-view-items-${worksheet.id}`}
-                title={`View worksheet items${(worksheet.itemCount || 0) === 0 ? ' (No items)' : ` (${worksheet.itemCount} items)`}`}
-                disabled={(worksheet.itemCount || 0) === 0}
-              >
-                <FileText className={`h-4 w-4 ${(worksheet.itemCount || 0) === 0 ? 'text-muted-foreground opacity-50' : ''}`} />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if ((worksheet.itemCount || 0) > 0) {
+                          onViewItems(worksheet);
+                        }
+                      }}
+                      className={`h-7 w-7 ${(worksheet.itemCount || 0) === 0 ? 'pointer-events-none' : ''}`}
+                      data-testid={`button-view-items-${worksheet.id}`}
+                      aria-disabled={(worksheet.itemCount || 0) === 0}
+                    >
+                      <FileText className={`h-4 w-4 ${(worksheet.itemCount || 0) === 0 ? 'text-muted-foreground opacity-50' : ''}`} />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {(worksheet.itemCount || 0) === 0 
+                    ? 'No items in this worksheet' 
+                    : `View ${worksheet.itemCount} item${worksheet.itemCount === 1 ? '' : 's'}`}
+                </TooltipContent>
+              </Tooltip>
               <Button
                 size="icon"
                 variant="ghost"

@@ -11393,24 +11393,33 @@ CRITICAL REQUIREMENTS:
         .from(worksheets)
         .where(eq(worksheets.projectId, projectId));
 
-      // Fetch statistics for each worksheet (item count and total sum)
-      const worksheetsWithStats = await Promise.all(
-        items.map(async (worksheet) => {
-          const stats = await db
-            .select({
-              itemCount: sql<number>`count(*)::int`,
-              totalSum: sql<string>`coalesce(sum(${worksheetItems.total}), 0)`,
-            })
-            .from(worksheetItems)
-            .where(eq(worksheetItems.worksheetId, worksheet.id));
+      // If no worksheets exist, return empty array immediately
+      if (items.length === 0) {
+        return res.json([]);
+      }
 
-          return {
-            ...worksheet,
-            itemCount: stats[0]?.itemCount || 0,
-            totalSum: stats[0]?.totalSum || '0',
-          };
+      // Fetch statistics for ALL worksheets in a single grouped query (avoid N+1)
+      const stats = await db
+        .select({
+          worksheetId: worksheetItems.worksheetId,
+          itemCount: sql<number>`count(*)::int`,
+          totalSum: sql<string>`coalesce(sum(${worksheetItems.total}), 0)`,
         })
+        .from(worksheetItems)
+        .where(sql`${worksheetItems.worksheetId} IN (${sql.join(items.map(w => sql`${w.id}`), sql`, `)})`)
+        .groupBy(worksheetItems.worksheetId);
+
+      // Create a lookup map for quick access
+      const statsMap = new Map(
+        stats.map(s => [s.worksheetId, { itemCount: s.itemCount, totalSum: s.totalSum }])
       );
+
+      // Merge stats with worksheets
+      const worksheetsWithStats = items.map(worksheet => ({
+        ...worksheet,
+        itemCount: statsMap.get(worksheet.id)?.itemCount || 0,
+        totalSum: statsMap.get(worksheet.id)?.totalSum || '0',
+      }));
 
       res.json(worksheetsWithStats);
     } catch (error) {

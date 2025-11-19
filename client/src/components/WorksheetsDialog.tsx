@@ -988,7 +988,7 @@ export function WorksheetsDialog({
                 collisionDetection={closestCenter}
                 onDragEnd={handleDragEnd}
               >
-                <table className="border-collapse" style={{ minWidth: '100%' }}>
+                <table className="border-collapse">
                   <thead className="sticky top-0 bg-muted z-10">
                     <tr>
                       <th className="text-data font-medium text-left p-2 border-b w-8">

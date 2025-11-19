@@ -702,7 +702,7 @@ export default function EDiscovery() {
 
               {/* Advanced Filters - Single Row */}
               <div className="flex items-end gap-2">
-                <div className="w-[90px]">
+                <div className="w-[140px]">
                   <Label className="text-xs text-muted-foreground">From</Label>
                   <Popover>
                     <PopoverTrigger asChild>
@@ -715,7 +715,7 @@ export default function EDiscovery() {
                         data-testid="button-date-from"
                       >
                         <CalendarIcon className="mr-1 h-3 w-3" />
-                        {dateFrom ? format(dateFrom, "dd/MM") : "Date"}
+                        {dateFrom ? format(dateFrom, "dd/MM/yy") : "Date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 z-50" align="start">
@@ -748,7 +748,7 @@ export default function EDiscovery() {
                     </PopoverContent>
                   </Popover>
                 </div>
-                <div className="w-[90px]">
+                <div className="w-[140px]">
                   <Label className="text-xs text-muted-foreground">To</Label>
                   <Popover>
                     <PopoverTrigger asChild>
@@ -761,7 +761,7 @@ export default function EDiscovery() {
                         data-testid="button-date-to"
                       >
                         <CalendarIcon className="mr-1 h-3 w-3" />
-                        {dateTo ? format(dateTo, "dd/MM") : "Date"}
+                        {dateTo ? format(dateTo, "dd/MM/yy") : "Date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 z-50" align="start">
@@ -794,7 +794,7 @@ export default function EDiscovery() {
                     </PopoverContent>
                   </Popover>
                 </div>
-                <div className="flex-1">
+                <div className="w-[180px]">
                   <Label className="text-xs text-muted-foreground">Sender Email</Label>
                   <Select value={senderFilter} onValueChange={setSenderFilter}>
                     <SelectTrigger className="h-8 text-sm" data-testid="select-sender">

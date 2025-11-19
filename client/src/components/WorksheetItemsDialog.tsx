@@ -125,6 +125,7 @@ export default function WorksheetItemsDialog({
 }: WorksheetItemsDialogProps) {
   const { toast } = useToast();
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, any>>({});
   const [showNewRow, setShowNewRow] = useState(false);
   const [newRowData, setNewRowData] = useState<{
     description: string;
@@ -138,6 +139,15 @@ export default function WorksheetItemsDialog({
     qty: '',
   });
   const [resourceSearchOpen, setResourceSearchOpen] = useState<string | null>(null);
+  const saveTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(saveTimerRef.current).forEach(timer => clearTimeout(timer));
+      saveTimerRef.current = {};
+    };
+  }, []);
 
   // Column widths state with localStorage persistence
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
@@ -209,33 +219,66 @@ export default function WorksheetItemsDialog({
     },
   });
 
-  // Update mutation
+  // Update mutation with optimistic updates
   const updateMutation = useMutation({
-    mutationFn: async ({ id, field, value }: { id: string; field: string; value: any }) => {
+    mutationFn: async (updatedItem: WorksheetItem) => {
       const response = await apiRequest(
         'PATCH',
-        `/api/projects/${projectId}/worksheets/${worksheetId}/items/${id}`,
-        { [field]: value }
+        `/api/projects/${projectId}/worksheets/${worksheetId}/items/${updatedItem.id}`,
+        {
+          description: updatedItem.description,
+          formula: updatedItem.formula,
+          resourceRateId: updatedItem.resourceRateId,
+          qty: updatedItem.qty,
+        }
       );
       return await response.json() as WorksheetItem;
     },
-    onSuccess: (updatedItem: WorksheetItem) => {
-      queryClient.setQueryData(
+    onMutate: async (updatedItem) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({
+        queryKey: ['/api/projects', projectId, 'worksheets', worksheetId, 'items'],
+      });
+
+      // Snapshot the previous value
+      const previousItems = queryClient.getQueryData<WorksheetItem[]>([
+        '/api/projects',
+        projectId,
+        'worksheets',
+        worksheetId,
+        'items',
+      ]);
+
+      // Optimistically update
+      queryClient.setQueryData<WorksheetItem[]>(
         ['/api/projects', projectId, 'worksheets', worksheetId, 'items'],
-        (oldData: any) => {
-          if (!oldData) return oldData;
-          return oldData.map((item: WorksheetItem) =>
-            item.id === updatedItem.id ? updatedItem : item
-          );
+        (old) => {
+          if (!old) return old;
+          return old.map((item) => (item.id === updatedItem.id ? updatedItem : item));
         }
       );
-      setEditingCell(null);
+
+      // Return context with the snapshot
+      return { previousItems };
     },
-    onError: (error: any) => {
+    onError: (err, updatedItem, context) => {
+      // Rollback on error
+      if (context?.previousItems) {
+        queryClient.setQueryData(
+          ['/api/projects', projectId, 'worksheets', worksheetId, 'items'],
+          context.previousItems
+        );
+      }
       toast({
         title: 'Error',
-        description: error.message || 'Failed to update item.',
+        description: 'Failed to update worksheet item.',
         variant: 'destructive',
+      });
+    },
+    onSettled: () => {
+      // Refetch after save or error to sync with server
+      queryClient.invalidateQueries({
+        queryKey: ['/api/projects', projectId, 'worksheets', worksheetId, 'items'],
       });
     },
   });
@@ -256,21 +299,64 @@ export default function WorksheetItemsDialog({
     },
   });
 
+  // Debounced field update handler (300ms like BOQ)
+  const handleFieldChange = (item: WorksheetItem, field: keyof WorksheetItem, value: any) => {
+    const editKey = `${item.id}-${String(field)}`;
+
+    // Immediately update local edit state for instant UI feedback
+    setEditValues(prev => ({ ...prev, [editKey]: value }));
+
+    // Clear existing timer for this item (ONE timer per item, not per field)
+    if (saveTimerRef.current[item.id]) {
+      clearTimeout(saveTimerRef.current[item.id]);
+    }
+
+    // Debounce the server save (300ms)
+    // When the timer fires, it will save ALL pending edits for this item
+    saveTimerRef.current[item.id] = setTimeout(() => {
+      // Collect all pending edits for this item at save time
+      setEditValues(currentEditValues => {
+        // Build updated item with all pending changes
+        const pendingEdits: Record<string, any> = {};
+        Object.keys(currentEditValues).forEach(key => {
+          if (key.startsWith(`${item.id}-`)) {
+            const fieldName = key.substring(`${item.id}-`.length);
+            pendingEdits[fieldName] = currentEditValues[key];
+          }
+        });
+
+        // Get latest item from cache
+        const currentItems = queryClient.getQueryData<WorksheetItem[]>([
+          '/api/projects',
+          projectId,
+          'worksheets',
+          worksheetId,
+          'items',
+        ]);
+        const latestItem = currentItems?.find(i => i.id === item.id) || item;
+
+        // Merge all pending edits
+        const updatedItem = { ...latestItem, ...pendingEdits };
+        updateMutation.mutate(updatedItem);
+
+        // Clear all edit values for this item
+        const next = { ...currentEditValues };
+        Object.keys(next).forEach(key => {
+          if (key.startsWith(`${item.id}-`)) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
+
+      delete saveTimerRef.current[item.id];
+    }, 300);
+  };
+
   const handleCellClick = (id: string, field: string) => {
     // Don't allow editing unit, tenderRate, or LQ (LQ is auto-numbered)
     if (field === 'unit' || field === 'tenderRate' || field === 'lq') return;
     setEditingCell({ id, field });
-  };
-
-  const handleCellBlur = (id: string, field: string, value: any) => {
-    if (editingCell?.id === id && editingCell?.field === field) {
-      const item = items.find(i => i.id === id);
-      if (item && item[field as keyof WorksheetItem] !== value) {
-        updateMutation.mutate({ id, field, value });
-      } else {
-        setEditingCell(null);
-      }
-    }
   };
 
   const handleNewRowSave = () => {
@@ -297,8 +383,11 @@ export default function WorksheetItemsDialog({
       // New row
       setNewRowData({ ...newRowData, resourceRateId: resourceId });
     } else {
-      // Existing row
-      updateMutation.mutate({ id: itemId, field: 'resourceRateId', value: resourceId });
+      // Existing row - find the item and update it
+      const item = items.find(i => i.id === itemId);
+      if (item) {
+        handleFieldChange(item, 'resourceRateId', resourceId);
+      }
     }
     setResourceSearchOpen(null);
   };
@@ -464,8 +553,9 @@ export default function WorksheetItemsDialog({
                     >
                       {editingCell?.id === item.id && editingCell?.field === 'description' ? (
                         <Input
-                          defaultValue={item.description || ''}
-                          onBlur={(e) => handleCellBlur(item.id, 'description', e.target.value || null)}
+                          value={editValues[`${item.id}-description`] ?? item.description ?? ''}
+                          onChange={(e) => handleFieldChange(item, 'description', e.target.value || null)}
+                          onBlur={() => setEditingCell(null)}
                           autoFocus
                           className="border-0 focus-visible:ring-1 h-auto py-0 text-data"
                           style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
@@ -476,7 +566,7 @@ export default function WorksheetItemsDialog({
                           className="text-data px-4" 
                           style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                         >
-                          {item.description || '-'}
+                          {editValues[`${item.id}-description`] ?? item.description ?? '-'}
                         </div>
                       )}
                     </TableCell>
@@ -487,8 +577,9 @@ export default function WorksheetItemsDialog({
                     >
                       {editingCell?.id === item.id && editingCell?.field === 'formula' ? (
                         <Input
-                          defaultValue={item.formula || ''}
-                          onBlur={(e) => handleCellBlur(item.id, 'formula', e.target.value || null)}
+                          value={editValues[`${item.id}-formula`] ?? item.formula ?? ''}
+                          onChange={(e) => handleFieldChange(item, 'formula', e.target.value || null)}
+                          onBlur={() => setEditingCell(null)}
                           autoFocus
                           className="border-0 focus-visible:ring-1 h-auto py-0 text-data font-mono"
                           style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
@@ -499,7 +590,7 @@ export default function WorksheetItemsDialog({
                           className="text-data font-mono px-4" 
                           style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                         >
-                          {item.formula || '-'}
+                          {editValues[`${item.id}-formula`] ?? item.formula ?? '-'}
                         </div>
                       )}
                     </TableCell>
@@ -522,8 +613,9 @@ export default function WorksheetItemsDialog({
                         <Input
                           type="number"
                           step="0.01"
-                          defaultValue={item.qty || ''}
-                          onBlur={(e) => handleCellBlur(item.id, 'qty', e.target.value || null)}
+                          value={editValues[`${item.id}-qty`] ?? item.qty ?? ''}
+                          onChange={(e) => handleFieldChange(item, 'qty', e.target.value || null)}
+                          onBlur={() => setEditingCell(null)}
                           autoFocus
                           className="border-0 focus-visible:ring-1 h-auto py-0 text-data text-right"
                           style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
@@ -534,7 +626,7 @@ export default function WorksheetItemsDialog({
                           className="text-data text-right px-4" 
                           style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                         >
-                          {item.qty || '-'}
+                          {editValues[`${item.id}-qty`] ?? item.qty ?? '-'}
                         </div>
                       )}
                     </TableCell>

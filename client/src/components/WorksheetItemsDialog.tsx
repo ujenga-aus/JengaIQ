@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { queryClient, apiRequest } from '@/lib/queryClient';
-import { Plus, Trash2, GripHorizontal } from 'lucide-react';
+import { Plus, Trash2, GripHorizontal, GripVertical, Move } from 'lucide-react';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import Draggable, { DraggableData, DraggableEvent } from 'react-draggable';
 
 interface WorksheetItemsDialogProps {
   open: boolean;
@@ -139,6 +140,88 @@ export default function WorksheetItemsDialog({
   const [resourceSearchOpen, setResourceSearchOpen] = useState<string | null>(null);
   const saveTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
   const columnWidthSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Dialog position and size state
+  const [dialogPosition, setDialogPosition] = useState({ x: 0, y: 0 });
+  const [dialogSize, setDialogSize] = useState({ width: 1400, height: 800 });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ width: number; height: number; mouseX: number; mouseY: number } | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Load dialog position and size from localStorage
+  useEffect(() => {
+    const savedPrefs = localStorage.getItem('worksheet-items-dialog-prefs');
+    if (savedPrefs) {
+      try {
+        const prefs = JSON.parse(savedPrefs);
+        if (prefs.position) setDialogPosition(prefs.position);
+        if (prefs.size) setDialogSize(prefs.size);
+      } catch (e) {
+        console.error('Failed to parse dialog preferences:', e);
+      }
+    }
+  }, []);
+
+  // Save dialog position to localStorage
+  const handleDragStop = (_e: DraggableEvent, data: DraggableData) => {
+    const newPosition = { x: data.x, y: data.y };
+    setDialogPosition(newPosition);
+    const savedPrefs = JSON.parse(localStorage.getItem('worksheet-items-dialog-prefs') || '{}');
+    localStorage.setItem('worksheet-items-dialog-prefs', JSON.stringify({
+      ...savedPrefs,
+      position: newPosition,
+    }));
+  };
+
+  // Handle resize
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeStartRef.current = {
+      width: dialogSize.width,
+      height: dialogSize.height,
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+    };
+  };
+
+  useEffect(() => {
+    if (!isResizing || !resizeStartRef.current) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizeStartRef.current) return;
+      
+      const deltaX = e.clientX - resizeStartRef.current.mouseX;
+      const deltaY = e.clientY - resizeStartRef.current.mouseY;
+      
+      const newSize = {
+        width: Math.max(800, resizeStartRef.current.width + deltaX),
+        height: Math.max(500, resizeStartRef.current.height + deltaY),
+      };
+      
+      setDialogSize(newSize);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      resizeStartRef.current = null;
+      
+      // Save size to localStorage
+      const savedPrefs = JSON.parse(localStorage.getItem('worksheet-items-dialog-prefs') || '{}');
+      localStorage.setItem('worksheet-items-dialog-prefs', JSON.stringify({
+        ...savedPrefs,
+        size: dialogSize,
+      }));
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, dialogSize]);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -468,15 +551,45 @@ export default function WorksheetItemsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="text-data-lg">
-            Worksheet Items - {worksheetCode}
-            {worksheetDescription && ` (${worksheetDescription})`}
-          </DialogTitle>
-        </DialogHeader>
+      <Draggable
+        handle=".drag-handle"
+        position={dialogPosition}
+        onStop={handleDragStop}
+        bounds="parent"
+      >
+        <div
+          ref={dialogRef}
+          className="fixed bg-background border rounded-lg shadow-lg flex flex-col"
+          style={{
+            width: `${dialogSize.width}px`,
+            height: `${dialogSize.height}px`,
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 50,
+          }}
+          data-testid="worksheet-items-dialog"
+        >
+          {/* Drag Handle Header */}
+          <div className="drag-handle flex items-center justify-between px-6 py-4 border-b cursor-move bg-muted/30">
+            <div className="flex items-center gap-2">
+              <Move className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-data-lg font-semibold">
+                Worksheet Items - {worksheetCode}
+                {worksheetDescription && ` (${worksheetDescription})`}
+              </h2>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onOpenChange(false)}
+              data-testid="button-close-header"
+            >
+              <Plus className="h-4 w-4 rotate-45" />
+            </Button>
+          </div>
 
-        <div className="flex-1 overflow-auto border rounded-md">
+        <div className="flex-1 overflow-auto mx-6 my-4 border rounded-md">
           <Table className="table-fixed border-separate border-spacing-0">
             <colgroup>
               <col style={{ width: `${columnWidths.lq}px`, minWidth: '60px' }} />
@@ -759,7 +872,7 @@ export default function WorksheetItemsDialog({
           )}
         </div>
 
-        <div className="flex justify-between items-center pt-4 border-t">
+        <div className="flex justify-between items-center px-6 py-4 border-t">
           <div className="flex gap-2">
             {showNewRow ? (
               <Button onClick={handleNewRowSave} disabled={createMutation.isPending} data-testid="button-save-new">
@@ -776,7 +889,27 @@ export default function WorksheetItemsDialog({
             Close
           </Button>
         </div>
-      </DialogContent>
+
+        {/* Resize Handles */}
+        <div
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize hover:bg-blue-500/20"
+          onMouseDown={handleResizeStart}
+          data-testid="resize-handle-br"
+        >
+          <GripVertical className="h-3 w-3 text-muted-foreground absolute bottom-0 right-0" />
+        </div>
+        <div
+          className="absolute bottom-0 left-0 right-0 h-1 cursor-ns-resize hover:bg-blue-500/20"
+          onMouseDown={handleResizeStart}
+          data-testid="resize-handle-bottom"
+        />
+        <div
+          className="absolute top-0 bottom-0 right-0 w-1 cursor-ew-resize hover:bg-blue-500/20"
+          onMouseDown={handleResizeStart}
+          data-testid="resize-handle-right"
+        />
+      </div>
+      </Draggable>
     </Dialog>
   );
 }

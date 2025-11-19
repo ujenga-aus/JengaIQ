@@ -138,12 +138,16 @@ export default function WorksheetItemsDialog({
   });
   const [resourceSearchOpen, setResourceSearchOpen] = useState<string | null>(null);
   const saveTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const columnWidthSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       Object.values(saveTimerRef.current).forEach(timer => clearTimeout(timer));
       saveTimerRef.current = {};
+      if (columnWidthSaveTimerRef.current) {
+        clearTimeout(columnWidthSaveTimerRef.current);
+      }
     };
   }, []);
 
@@ -177,7 +181,16 @@ export default function WorksheetItemsDialog({
   const saveColumnWidth = (columnId: string, width: number) => {
     const newWidths = { ...columnWidths, [columnId]: width };
     setColumnWidths(newWidths);
-    saveColumnPreferencesMutation.mutate(newWidths);
+    
+    // Debounce the API call - wait 500ms after last resize before saving
+    if (columnWidthSaveTimerRef.current) {
+      clearTimeout(columnWidthSaveTimerRef.current);
+    }
+    
+    columnWidthSaveTimerRef.current = setTimeout(() => {
+      saveColumnPreferencesMutation.mutate(newWidths);
+      columnWidthSaveTimerRef.current = null;
+    }, 500);
   };
 
   // Fetch worksheet items

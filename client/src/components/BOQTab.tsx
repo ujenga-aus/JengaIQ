@@ -50,6 +50,7 @@ import { BOQImportDialog } from "@/components/BOQImportDialog";
 import { BOQSettingsDialog } from "@/components/BOQSettingsDialog";
 import { GlobalVariablesDialog } from "@/components/GlobalVariablesDialog";
 import { ResourceRatesDialog } from "@/components/ResourceRatesDialog";
+import { WorksheetsDialog } from "@/components/WorksheetsDialog";
 import {
   DndContext,
   closestCenter,
@@ -823,6 +824,7 @@ function BOQTabInner() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [showGlobalVariablesDialog, setShowGlobalVariablesDialog] = useState(false);
   const [showResourceRatesDialog, setShowResourceRatesDialog] = useState(false);
+  const [showWorksheetsDialog, setShowWorksheetsDialog] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(DEFAULT_COLUMN_WIDTHS);
   const [editingCell, setEditingCell] = useState<{ itemId: string; field: string } | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -1795,6 +1797,17 @@ function BOQTabInner() {
               </Button>
             )}
 
+            {/* Worksheets button */}
+            <Button 
+              variant="outline"
+              onClick={() => setShowWorksheetsDialog(true)}
+              data-testid="button-worksheets"
+              className="text-xs font-semibold border-purple-600 text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/30"
+            >
+              <Layers className="h-4 w-4 mr-2" />
+              Worksheets
+            </Button>
+
             {/* Settings button - always show */}
             <Button 
               variant="outline"
@@ -2379,6 +2392,13 @@ function BOQTabInner() {
           companyId={selectedBusinessUnit.companyId}
         />
       )}
+
+      {/* Worksheets Dialog */}
+      <WorksheetsDialog
+        open={showWorksheetsDialog}
+        onOpenChange={setShowWorksheetsDialog}
+        projectId={selectedProject.id}
+      />
     </div>
   );
 }

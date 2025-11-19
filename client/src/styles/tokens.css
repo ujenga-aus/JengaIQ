@@ -39,7 +39,7 @@
   --fs-base: 14px;
   --grid-gap: 6px;
   --grid-cell-px: 8px;
-  --grid-cell-py: 4px;
+  --grid-cell-py: 0px;
   --row-height: 28px;
   --tile-gap: 8px;
   --menu-item-py: 4px;

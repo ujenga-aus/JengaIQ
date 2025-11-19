@@ -2411,10 +2411,6 @@ export function BOQTab() {
   // Create a stable revision key for the provider
   const revisionKey = `${selectedProject?.id}-${currentRevisionId}`;
 
-  if (!selectedProject) {
-    return <BOQTabInner />;
-  }
-
   return (
     <BoqViewProvider revisionKey={revisionKey}>
       <BOQTabInner />

@@ -9,6 +9,7 @@ import { riskRegisterWS } from "./riskRegisterWebSocket";
 import { resourceTypesWS } from "./resourceTypesWebSocket";
 import { globalVariablesWS } from "./globalVariablesWebSocket";
 import { resourceRatesWS } from "./resourceRatesWebSocket";
+import { worksheetsWS } from "./worksheetsWebSocket";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { 
   templateColumnConfigs, 
@@ -11936,6 +11937,10 @@ CRITICAL REQUIREMENTS:
   // Initialize WebSocket for real-time resource rates updates
   resourceRatesWS.initialize(httpServer);
   console.log('[ResourceRatesWS] Resource Rates WebSocket server initialized');
+  
+  // Initialize WebSocket for real-time worksheets updates
+  worksheetsWS.initialize(httpServer);
+  console.log('[WorksheetsWS] Worksheets WebSocket server initialized');
 
   return httpServer;
 }

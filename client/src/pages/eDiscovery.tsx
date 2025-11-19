@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -185,7 +186,7 @@ export default function EDiscovery() {
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
   const [dateTo, setDateTo] = useState<Date | undefined>();
   const [senderFilter, setSenderFilter] = useState("all");
-  const [hasAttachmentsFilter, setHasAttachmentsFilter] = useState<string>("all");
+  const [hasAttachmentsFilter, setHasAttachmentsFilter] = useState<boolean | undefined>(undefined);
   const [sourceFilenameFilter, setSourceFilenameFilter] = useState("");
   
   // Selection state
@@ -258,10 +259,8 @@ export default function EDiscovery() {
       if (senderFilter && senderFilter !== "all") {
         params.append('from', senderFilter);
       }
-      if (hasAttachmentsFilter === "yes") {
+      if (hasAttachmentsFilter === true) {
         params.append('hasAttachments', 'true');
-      } else if (hasAttachmentsFilter === "no") {
-        params.append('hasAttachments', 'false');
       }
       
       const response = await fetch(`/api/ediscovery/emails?${params.toString()}`, {
@@ -319,7 +318,7 @@ export default function EDiscovery() {
           dateFrom: dateFrom ? format(dateFrom, "yyyy-MM-dd") : undefined,
           dateTo: dateTo ? format(dateTo, "yyyy-MM-dd") : undefined,
           sender: senderFilter && senderFilter !== "all" ? senderFilter : undefined,
-          hasAttachments: hasAttachmentsFilter === "yes" ? true : hasAttachmentsFilter === "no" ? false : undefined,
+          hasAttachments: hasAttachmentsFilter,
           limit: 100,
         }
       );
@@ -701,22 +700,22 @@ export default function EDiscovery() {
                 </Button>
               </div>
 
-              {/* Advanced Filters */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Date From</Label>
+              {/* Advanced Filters - Single Row */}
+              <div className="flex items-end gap-2">
+                <div className="w-[90px]">
+                  <Label className="text-xs text-muted-foreground">From</Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         className={cn(
-                          "h-8 w-full justify-start text-left font-normal text-sm",
+                          "h-8 w-full justify-start text-left font-normal text-xs px-2",
                           !dateFrom && "text-muted-foreground"
                         )}
                         data-testid="button-date-from"
                       >
-                        <CalendarIcon className="mr-2 h-3 w-3" />
-                        {dateFrom ? format(dateFrom, "dd/MM/yyyy") : "Pick a date"}
+                        <CalendarIcon className="mr-1 h-3 w-3" />
+                        {dateFrom ? format(dateFrom, "dd/MM") : "Date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 z-50" align="start">
@@ -749,20 +748,20 @@ export default function EDiscovery() {
                     </PopoverContent>
                   </Popover>
                 </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Date To</Label>
+                <div className="w-[90px]">
+                  <Label className="text-xs text-muted-foreground">To</Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         className={cn(
-                          "h-8 w-full justify-start text-left font-normal text-sm",
+                          "h-8 w-full justify-start text-left font-normal text-xs px-2",
                           !dateTo && "text-muted-foreground"
                         )}
                         data-testid="button-date-to"
                       >
-                        <CalendarIcon className="mr-2 h-3 w-3" />
-                        {dateTo ? format(dateTo, "dd/MM/yyyy") : "Pick a date"}
+                        <CalendarIcon className="mr-1 h-3 w-3" />
+                        {dateTo ? format(dateTo, "dd/MM") : "Date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 z-50" align="start">
@@ -795,7 +794,7 @@ export default function EDiscovery() {
                     </PopoverContent>
                   </Popover>
                 </div>
-                <div>
+                <div className="flex-1">
                   <Label className="text-xs text-muted-foreground">Sender Email</Label>
                   <Select value={senderFilter} onValueChange={setSenderFilter}>
                     <SelectTrigger className="h-8 text-sm" data-testid="select-sender">
@@ -811,18 +810,16 @@ export default function EDiscovery() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Has Attachments</Label>
-                  <Select value={hasAttachmentsFilter} onValueChange={setHasAttachmentsFilter}>
-                    <SelectTrigger className="h-8 text-sm" data-testid="select-attachments">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-center gap-2 h-8">
+                  <Checkbox
+                    id="has-attachments"
+                    checked={hasAttachmentsFilter === true}
+                    onCheckedChange={(checked) => setHasAttachmentsFilter(checked === true ? true : undefined)}
+                    data-testid="checkbox-attachments"
+                  />
+                  <Label htmlFor="has-attachments" className="text-xs text-muted-foreground cursor-pointer">
+                    <Paperclip className="h-3 w-3" />
+                  </Label>
                 </div>
               </div>
 

@@ -11666,8 +11666,14 @@ CRITICAL REQUIREMENTS:
         worksheetId,
       });
 
-      // Compute result from formula
-      const result = parseFormula(validated.formula);
+      // Fetch all worksheet items for cross-reference lookup
+      const allItems = await db
+        .select({ lq: worksheetItems.lq, result: worksheetItems.result })
+        .from(worksheetItems)
+        .where(eq(worksheetItems.worksheetId, worksheetId));
+
+      // Compute result from formula (with cross-reference support)
+      const result = parseFormula(validated.formula, allItems, validated.lq);
 
       // Get tender rate from resource if available
       let tenderRate = 0;
@@ -11731,11 +11737,20 @@ CRITICAL REQUIREMENTS:
         return res.status(404).json({ error: 'Worksheet item not found' });
       }
 
+      // Fetch all worksheet items for cross-reference lookup
+      const allItems = await db
+        .select({ lq: worksheetItems.lq, result: worksheetItems.result })
+        .from(worksheetItems)
+        .where(eq(worksheetItems.worksheetId, worksheetId));
+
       // Determine final formula (use updated or existing)
       const finalFormula = validated.formula !== undefined ? validated.formula : currentItem.formula;
       
-      // Compute result from formula
-      const result = parseFormula(finalFormula);
+      // Determine final LQ (use updated or existing)
+      const finalLq = validated.lq !== undefined ? validated.lq : currentItem.lq;
+      
+      // Compute result from formula (with cross-reference support)
+      const result = parseFormula(finalFormula, allItems, finalLq);
 
       // Determine final resourceRateId (use updated or existing)
       const finalResourceRateId = validated.resourceRateId !== undefined 

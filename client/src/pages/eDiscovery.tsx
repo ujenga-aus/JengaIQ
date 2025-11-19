@@ -715,7 +715,7 @@ export default function EDiscovery() {
                         data-testid="button-date-from"
                       >
                         <CalendarIcon className="mr-1 h-3 w-3" />
-                        {dateFrom ? format(dateFrom, "dd/MM/yy") : "Date"}
+                        {dateFrom ? format(dateFrom, "dd MMM yy") : "Date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 z-50" align="start">
@@ -761,7 +761,7 @@ export default function EDiscovery() {
                         data-testid="button-date-to"
                       >
                         <CalendarIcon className="mr-1 h-3 w-3" />
-                        {dateTo ? format(dateTo, "dd/MM/yy") : "Date"}
+                        {dateTo ? format(dateTo, "dd MMM yy") : "Date"}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 z-50" align="start">

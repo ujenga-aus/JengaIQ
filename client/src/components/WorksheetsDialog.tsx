@@ -976,10 +976,10 @@ export function WorksheetsDialog({
           </div>
 
           {/* Table */}
-          <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex-1 overflow-hidden grid" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
             <div 
               ref={parentRef}
-              className="h-full min-w-0 overflow-auto focus:outline-none"
+              className="overflow-auto focus:outline-none"
               onKeyDown={handleTableKeyDown}
               tabIndex={0}
             >

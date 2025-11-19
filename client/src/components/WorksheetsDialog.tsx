@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, Upload } from 'lucide-react';
 import Draggable from 'react-draggable';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useWorksheetsWebSocket } from '@/hooks/useWorksheetsWebSocket';
+import { WorksheetsImportDialog } from './WorksheetsImportDialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -68,6 +69,7 @@ export function WorksheetsDialog({
   const sizeRef = useRef({ width: 700, height: 500 });
   const [size, setSize] = useState({ width: 700, height: 500 });
   const [initialPosition, setInitialPosition] = useState({ x: 0, y: 0 });
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   // Load saved position/size/column widths from localStorage when dialog opens
   useEffect(() => {
@@ -653,6 +655,15 @@ export function WorksheetsDialog({
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setShowImportDialog(true)}
+                data-testid="button-import-worksheets"
+              >
+                <Upload className="w-4 h-4 mr-1" />
+                Import
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setShowNewRow(true)}
                 disabled={showNewRow}
                 data-testid="button-add-worksheet"
@@ -866,6 +877,19 @@ export function WorksheetsDialog({
           />
         </div>
       </Draggable>
+
+      <WorksheetsImportDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        projectId={projectId}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/worksheets`] });
+          toast({
+            title: "Import successful",
+            description: "Worksheets have been imported successfully",
+          });
+        }}
+      />
     </div>
   );
 }

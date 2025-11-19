@@ -1,13 +1,14 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { queryClient, apiRequest } from '@/lib/queryClient';
-import { Plus, Trash2, Search } from 'lucide-react';
+import { Plus, Trash2, GripHorizontal } from 'lucide-react';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 interface WorksheetItemsDialogProps {
   open: boolean;
@@ -38,6 +39,82 @@ interface ResourceRate {
   tenderRate: string | null;
 }
 
+const STORAGE_KEY_COLUMN_WIDTHS = 'worksheet-items-column-widths';
+
+const DEFAULT_COLUMN_WIDTHS = {
+  lq: 80,
+  description: 300,
+  formula: 150,
+  resource: 250,
+  unit: 100,
+  qty: 100,
+  tenderRate: 120,
+  actions: 80,
+};
+
+// ResizableTableHead component for column resizing
+function ResizableTableHead({
+  columnId,
+  currentWidth,
+  minWidth,
+  onResize,
+  className,
+  children,
+}: {
+  columnId: string;
+  currentWidth: number;
+  minWidth: number;
+  onResize: (columnId: string, width: number) => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const thRef = useRef<HTMLTableCellElement>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = currentWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const newWidth = Math.max(minWidth, startWidth + delta);
+      onResize(columnId, newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  return (
+    <TableHead
+      ref={thRef}
+      className={`${className || ''} relative select-none`}
+    >
+      <div className="pr-2">
+        {children}
+      </div>
+      <div
+        className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 ${
+          isResizing ? 'bg-blue-500' : ''
+        }`}
+        onMouseDown={handleMouseDown}
+      >
+        <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100">
+          <GripHorizontal className="h-3 w-3 text-blue-500" />
+        </div>
+      </div>
+    </TableHead>
+  );
+}
+
 export default function WorksheetItemsDialog({
   open,
   onOpenChange,
@@ -49,14 +126,35 @@ export default function WorksheetItemsDialog({
   const { toast } = useToast();
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [showNewRow, setShowNewRow] = useState(false);
-  const [newRowData, setNewRowData] = useState<Partial<WorksheetItem>>({
-    lq: '',
+  const [newRowData, setNewRowData] = useState<{
+    description: string;
+    formula: string;
+    resourceRateId: string | null;
+    qty: string;
+  }>({
     description: '',
     formula: '',
     resourceRateId: null,
     qty: '',
   });
   const [resourceSearchOpen, setResourceSearchOpen] = useState<string | null>(null);
+
+  // Column widths state with localStorage persistence
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_COLUMN_WIDTHS);
+      if (stored) {
+        return { ...DEFAULT_COLUMN_WIDTHS, ...JSON.parse(stored) };
+      }
+    } catch {}
+    return DEFAULT_COLUMN_WIDTHS;
+  });
+
+  const saveColumnWidth = (columnId: string, width: number) => {
+    const newWidths = { ...columnWidths, [columnId]: width };
+    setColumnWidths(newWidths);
+    localStorage.setItem(STORAGE_KEY_COLUMN_WIDTHS, JSON.stringify(newWidths));
+  };
 
   // Fetch worksheet items
   const { data: items = [], isLoading: itemsLoading } = useQuery<WorksheetItem[]>({
@@ -92,7 +190,6 @@ export default function WorksheetItemsDialog({
       });
       setShowNewRow(false);
       setNewRowData({
-        lq: '',
         description: '',
         formula: '',
         resourceRateId: null,
@@ -160,8 +257,8 @@ export default function WorksheetItemsDialog({
   });
 
   const handleCellClick = (id: string, field: string) => {
-    // Don't allow editing unit or tenderRate as they're derived from resourceRate
-    if (field === 'unit' || field === 'tenderRate') return;
+    // Don't allow editing unit, tenderRate, or LQ (LQ is auto-numbered)
+    if (field === 'unit' || field === 'tenderRate' || field === 'lq') return;
     setEditingCell({ id, field });
   };
 
@@ -188,7 +285,6 @@ export default function WorksheetItemsDialog({
 
     createMutation.mutate({
       ...newRowData,
-      lq: newRowData.lq || null,
       description: newRowData.description || null,
       formula: newRowData.formula || null,
       resourceRateId: newRowData.resourceRateId || null,
@@ -217,7 +313,8 @@ export default function WorksheetItemsDialog({
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
-            className="w-full justify-start font-normal h-auto py-1 px-2 hover-elevate"
+            className="w-full justify-start font-normal h-auto px-2 hover-elevate text-data"
+            style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
             data-testid={`button-resource-lookup-${itemId || 'new'}`}
           >
             {currentResource ? (
@@ -267,45 +364,101 @@ export default function WorksheetItemsDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-auto border rounded-md">
-          <table className="w-full">
-            <thead className="bg-muted sticky top-0 z-10">
-              <tr className="text-data-sm">
-                <th className="text-left p-2 border-b font-medium w-24">LQ</th>
-                <th className="text-left p-2 border-b font-medium flex-1">Description</th>
-                <th className="text-left p-2 border-b font-medium w-32">Formula</th>
-                <th className="text-left p-2 border-b font-medium w-64">Resource</th>
-                <th className="text-left p-2 border-b font-medium w-24">Unit</th>
-                <th className="text-left p-2 border-b font-medium w-24">QTY</th>
-                <th className="text-left p-2 border-b font-medium w-32">Tender Rate</th>
-                <th className="text-left p-2 border-b font-medium w-16">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => {
+          <Table className="table-fixed border-separate border-spacing-0">
+            <colgroup>
+              <col style={{ width: `${columnWidths.lq}px`, minWidth: '60px' }} />
+              <col style={{ width: `${columnWidths.description}px`, minWidth: '150px' }} />
+              <col style={{ width: `${columnWidths.formula}px`, minWidth: '100px' }} />
+              <col style={{ width: `${columnWidths.resource}px`, minWidth: '150px' }} />
+              <col style={{ width: `${columnWidths.unit}px`, minWidth: '60px' }} />
+              <col style={{ width: `${columnWidths.qty}px`, minWidth: '80px' }} />
+              <col style={{ width: `${columnWidths.tenderRate}px`, minWidth: '100px' }} />
+              <col style={{ width: `${columnWidths.actions}px`, minWidth: '60px' }} />
+            </colgroup>
+            <TableHeader className="sticky top-0 z-10 bg-background">
+              <TableRow>
+                <ResizableTableHead
+                  columnId="lq"
+                  currentWidth={columnWidths.lq}
+                  minWidth={60}
+                  onResize={saveColumnWidth}
+                  className="text-left"
+                >
+                  LQ
+                </ResizableTableHead>
+                <ResizableTableHead
+                  columnId="description"
+                  currentWidth={columnWidths.description}
+                  minWidth={150}
+                  onResize={saveColumnWidth}
+                  className="text-left"
+                >
+                  Description
+                </ResizableTableHead>
+                <ResizableTableHead
+                  columnId="formula"
+                  currentWidth={columnWidths.formula}
+                  minWidth={100}
+                  onResize={saveColumnWidth}
+                  className="text-left"
+                >
+                  Formula
+                </ResizableTableHead>
+                <ResizableTableHead
+                  columnId="resource"
+                  currentWidth={columnWidths.resource}
+                  minWidth={150}
+                  onResize={saveColumnWidth}
+                  className="text-left"
+                >
+                  Resource
+                </ResizableTableHead>
+                <ResizableTableHead
+                  columnId="unit"
+                  currentWidth={columnWidths.unit}
+                  minWidth={60}
+                  onResize={saveColumnWidth}
+                  className="text-left"
+                >
+                  Unit
+                </ResizableTableHead>
+                <ResizableTableHead
+                  columnId="qty"
+                  currentWidth={columnWidths.qty}
+                  minWidth={80}
+                  onResize={saveColumnWidth}
+                  className="text-right"
+                >
+                  QTY
+                </ResizableTableHead>
+                <ResizableTableHead
+                  columnId="tenderRate"
+                  currentWidth={columnWidths.tenderRate}
+                  minWidth={100}
+                  onResize={saveColumnWidth}
+                  className="text-right"
+                >
+                  Tender Rate
+                </ResizableTableHead>
+                <TableHead className="text-left">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item, index) => {
                 const resource = item.resourceRateId ? resourceMap.get(item.resourceRateId) : null;
+                const lineNumber = index + 1; // Auto-number starting from 1
+                
                 return (
-                  <tr key={item.id} className="border-b hover-elevate" data-testid={`row-item-${item.id}`}>
-                    <td
-                      className="p-2 cursor-pointer"
-                      onClick={() => handleCellClick(item.id, 'lq')}
+                  <TableRow key={item.id} className="hover:bg-muted/50" data-testid={`row-item-${item.id}`}>
+                    <TableCell
+                      className="text-data text-muted-foreground bg-muted/30"
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                       data-testid={`cell-lq-${item.id}`}
                     >
-                      {editingCell?.id === item.id && editingCell?.field === 'lq' ? (
-                        <Input
-                          type="number"
-                          step="0.01"
-                          defaultValue={item.lq || ''}
-                          onBlur={(e) => handleCellBlur(item.id, 'lq', e.target.value || null)}
-                          autoFocus
-                          className="h-7 text-data"
-                          data-testid={`input-lq-${item.id}`}
-                        />
-                      ) : (
-                        <span className="text-data">{item.lq || '-'}</span>
-                      )}
-                    </td>
-                    <td
-                      className="p-2 cursor-pointer"
+                      {lineNumber}
+                    </TableCell>
+                    <TableCell
+                      className="cursor-pointer p-0"
                       onClick={() => handleCellClick(item.id, 'description')}
                       data-testid={`cell-description-${item.id}`}
                     >
@@ -314,15 +467,21 @@ export default function WorksheetItemsDialog({
                           defaultValue={item.description || ''}
                           onBlur={(e) => handleCellBlur(item.id, 'description', e.target.value || null)}
                           autoFocus
-                          className="h-7 text-data"
+                          className="border-0 focus-visible:ring-1 h-auto py-0 text-data"
+                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                           data-testid={`input-description-${item.id}`}
                         />
                       ) : (
-                        <span className="text-data">{item.description || '-'}</span>
+                        <div 
+                          className="text-data px-4" 
+                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                        >
+                          {item.description || '-'}
+                        </div>
                       )}
-                    </td>
-                    <td
-                      className="p-2 cursor-pointer"
+                    </TableCell>
+                    <TableCell
+                      className="cursor-pointer p-0"
                       onClick={() => handleCellClick(item.id, 'formula')}
                       data-testid={`cell-formula-${item.id}`}
                     >
@@ -331,21 +490,31 @@ export default function WorksheetItemsDialog({
                           defaultValue={item.formula || ''}
                           onBlur={(e) => handleCellBlur(item.id, 'formula', e.target.value || null)}
                           autoFocus
-                          className="h-7 text-data font-mono"
+                          className="border-0 focus-visible:ring-1 h-auto py-0 text-data font-mono"
+                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                           data-testid={`input-formula-${item.id}`}
                         />
                       ) : (
-                        <span className="text-data font-mono">{item.formula || '-'}</span>
+                        <div 
+                          className="text-data font-mono px-4" 
+                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                        >
+                          {item.formula || '-'}
+                        </div>
                       )}
-                    </td>
-                    <td className="p-2" data-testid={`cell-resource-${item.id}`}>
+                    </TableCell>
+                    <TableCell className="p-0" data-testid={`cell-resource-${item.id}`}>
                       <ResourceLookupCell itemId={item.id} currentResourceId={item.resourceRateId} />
-                    </td>
-                    <td className="p-2 text-muted-foreground" data-testid={`cell-unit-${item.id}`}>
-                      <span className="text-data">{resource?.unit || '-'}</span>
-                    </td>
-                    <td
-                      className="p-2 cursor-pointer"
+                    </TableCell>
+                    <TableCell 
+                      className="text-muted-foreground text-data px-4" 
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      data-testid={`cell-unit-${item.id}`}
+                    >
+                      {resource?.unit || '-'}
+                    </TableCell>
+                    <TableCell
+                      className="cursor-pointer p-0"
                       onClick={() => handleCellClick(item.id, 'qty')}
                       data-testid={`cell-qty-${item.id}`}
                     >
@@ -356,17 +525,30 @@ export default function WorksheetItemsDialog({
                           defaultValue={item.qty || ''}
                           onBlur={(e) => handleCellBlur(item.id, 'qty', e.target.value || null)}
                           autoFocus
-                          className="h-7 text-data"
+                          className="border-0 focus-visible:ring-1 h-auto py-0 text-data text-right"
+                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                           data-testid={`input-qty-${item.id}`}
                         />
                       ) : (
-                        <span className="text-data">{item.qty || '-'}</span>
+                        <div 
+                          className="text-data text-right px-4" 
+                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                        >
+                          {item.qty || '-'}
+                        </div>
                       )}
-                    </td>
-                    <td className="p-2 text-muted-foreground" data-testid={`cell-tender-rate-${item.id}`}>
-                      <span className="text-data">{resource?.tenderRate || '-'}</span>
-                    </td>
-                    <td className="p-2">
+                    </TableCell>
+                    <TableCell 
+                      className="text-muted-foreground text-data text-right px-4" 
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      data-testid={`cell-tender-rate-${item.id}`}
+                    >
+                      {resource?.tenderRate || '-'}
+                    </TableCell>
+                    <TableCell 
+                      className="px-2" 
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    >
                       <Button
                         variant="ghost"
                         size="icon"
@@ -375,68 +557,71 @@ export default function WorksheetItemsDialog({
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
 
               {showNewRow && (
-                <tr className="border-b bg-muted/50" data-testid="row-new-item">
-                  <td className="p-2">
+                <TableRow className="bg-muted/50" data-testid="row-new-item">
+                  <TableCell 
+                    className="text-data text-muted-foreground bg-muted/30 px-4" 
+                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                  >
+                    {items.length + 1}
+                  </TableCell>
+                  <TableCell className="p-0">
                     <Input
-                      type="number"
-                      step="0.01"
-                      value={newRowData.lq || ''}
-                      onChange={(e) => setNewRowData({ ...newRowData, lq: e.target.value })}
-                      placeholder="LQ"
-                      className="h-7 text-data"
-                      data-testid="input-new-lq"
-                    />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      value={newRowData.description || ''}
+                      value={newRowData.description}
                       onChange={(e) => setNewRowData({ ...newRowData, description: e.target.value })}
                       placeholder="Description *"
-                      className="h-7 text-data"
+                      className="border-0 focus-visible:ring-1 h-auto py-0 text-data"
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                       data-testid="input-new-description"
                       autoFocus
                     />
-                  </td>
-                  <td className="p-2">
+                  </TableCell>
+                  <TableCell className="p-0">
                     <Input
-                      value={newRowData.formula || ''}
+                      value={newRowData.formula}
                       onChange={(e) => setNewRowData({ ...newRowData, formula: e.target.value })}
                       placeholder="Formula"
-                      className="h-7 text-data font-mono"
+                      className="border-0 focus-visible:ring-1 h-auto py-0 text-data font-mono"
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                       data-testid="input-new-formula"
                     />
-                  </td>
-                  <td className="p-2">
-                    <ResourceLookupCell itemId={null} currentResourceId={newRowData.resourceRateId || null} />
-                  </td>
-                  <td className="p-2 text-muted-foreground">
-                    <span className="text-data">
-                      {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.unit || '-'}
-                    </span>
-                  </td>
-                  <td className="p-2">
+                  </TableCell>
+                  <TableCell className="p-0">
+                    <ResourceLookupCell itemId={null} currentResourceId={newRowData.resourceRateId} />
+                  </TableCell>
+                  <TableCell 
+                    className="text-muted-foreground text-data px-4" 
+                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                  >
+                    {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.unit || '-'}
+                  </TableCell>
+                  <TableCell className="p-0">
                     <Input
                       type="number"
                       step="0.01"
-                      value={newRowData.qty || ''}
+                      value={newRowData.qty}
                       onChange={(e) => setNewRowData({ ...newRowData, qty: e.target.value })}
                       placeholder="QTY"
-                      className="h-7 text-data"
+                      className="border-0 focus-visible:ring-1 h-auto py-0 text-data text-right"
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                       data-testid="input-new-qty"
                     />
-                  </td>
-                  <td className="p-2 text-muted-foreground">
-                    <span className="text-data">
-                      {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.tenderRate || '-'}
-                    </span>
-                  </td>
-                  <td className="p-2">
+                  </TableCell>
+                  <TableCell 
+                    className="text-muted-foreground text-data text-right px-4" 
+                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                  >
+                    {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.tenderRate || '-'}
+                  </TableCell>
+                  <TableCell 
+                    className="px-2" 
+                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                  >
                     <Button
                       variant="ghost"
                       size="icon"
@@ -445,11 +630,11 @@ export default function WorksheetItemsDialog({
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
 
           {!itemsLoading && items.length === 0 && !showNewRow && (
             <div className="p-8 text-center text-muted-foreground">

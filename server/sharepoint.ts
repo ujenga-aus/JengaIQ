@@ -1063,4 +1063,105 @@ export class SharePointService {
       throw new Error(`Failed to download file from SharePoint: ${parseGraphError(error)}`);
     }
   }
+
+  // Upload a file to SharePoint
+  async uploadFile(
+    siteUrl: string,
+    folderPath: string,
+    fileName: string,
+    fileBuffer: Buffer
+  ): Promise<{ success: boolean; filePath: string; error?: string }> {
+    try {
+      const client = await getUncachableSharePointClient();
+      
+      // Normalize the folder path
+      const normalizedFolderPath = normalizeFolderPath(folderPath);
+      
+      // Extract site path from URL
+      const urlParts = new URL(siteUrl);
+      const sitePath = urlParts.pathname;
+      
+      // Get site information
+      const site = await client
+        .api(`/sites/${urlParts.hostname}:${sitePath}`)
+        .get();
+      
+      const siteId = site.id;
+      
+      // Get default drive
+      const drive = await client
+        .api(`/sites/${siteId}/drive`)
+        .get();
+      
+      const driveId = drive.id;
+      
+      // Construct the full file path
+      const fullFilePath = normalizedFolderPath.endsWith('/')
+        ? `${normalizedFolderPath}${fileName}`
+        : `${normalizedFolderPath}/${fileName}`;
+      
+      console.log(`[SharePoint Upload] Uploading file to: ${fullFilePath}`);
+      
+      // Upload the file
+      // For files < 4MB, use simple upload
+      // For files > 4MB, use upload session (chunked upload)
+      const fileSizeBytes = fileBuffer.length;
+      const fileSizeMB = fileSizeBytes / (1024 * 1024);
+      
+      if (fileSizeMB < 4) {
+        // Simple upload for small files
+        await client
+          .api(`/drives/${driveId}/root:${fullFilePath}:/content`)
+          .put(fileBuffer);
+        
+        console.log(`[SharePoint Upload] Successfully uploaded ${fileName} (${fileSizeMB.toFixed(2)} MB)`);
+      } else {
+        // Chunked upload for large files
+        const uploadSession = await client
+          .api(`/drives/${driveId}/root:${fullFilePath}:/createUploadSession`)
+          .post({});
+        
+        const uploadUrl = uploadSession.uploadUrl;
+        const chunkSize = 320 * 1024 * 10; // 3.2 MB chunks (recommended by Microsoft)
+        let start = 0;
+        
+        while (start < fileSizeBytes) {
+          const end = Math.min(start + chunkSize, fileSizeBytes);
+          const chunk = fileBuffer.slice(start, end);
+          const contentRange = `bytes ${start}-${end - 1}/${fileSizeBytes}`;
+          
+          console.log(`[SharePoint Upload] Uploading chunk: ${contentRange}`);
+          
+          const response = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Range': contentRange,
+              'Content-Length': chunk.length.toString(),
+            },
+            body: chunk,
+          });
+          
+          if (!response.ok && response.status !== 202) {
+            throw new Error(`Upload chunk failed: ${response.statusText}`);
+          }
+          
+          start = end;
+        }
+        
+        console.log(`[SharePoint Upload] Successfully uploaded ${fileName} (${fileSizeMB.toFixed(2)} MB) using chunked upload`);
+      }
+      
+      return {
+        success: true,
+        filePath: fullFilePath,
+      };
+    } catch (error) {
+      console.error('[SharePoint] Error uploading file:', error);
+      return {
+        success: false,
+        filePath: '',
+        error: parseGraphError(error),
+      };
+    }
+  }
 }

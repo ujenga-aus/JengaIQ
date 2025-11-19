@@ -5456,10 +5456,42 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
     try {
       const { projectId } = req.params;
       const file = req.file;
-      const { sender, recipient, subject, letterDate, category } = req.body;
+      const { fileName: unsafeFileName, sender, recipient, subject, letterDate, category } = req.body;
       
       if (!file || file.mimetype !== 'application/pdf') {
         return res.status(400).json({ error: 'PDF file is required' });
+      }
+      
+      if (!unsafeFileName || !unsafeFileName.trim()) {
+        return res.status(400).json({ error: 'File name is required' });
+      }
+      
+      // SECURITY: Sanitize filename to prevent path traversal attacks
+      const path = await import('path');
+      
+      // First, reject filenames with percent-encoding to prevent encoded traversal attacks
+      if (unsafeFileName.includes('%')) {
+        return res.status(400).json({ error: 'File name cannot contain percent characters' });
+      }
+      
+      let fileName = path.basename(unsafeFileName); // Remove any path components
+      fileName = fileName.replace(/\.\./g, ''); // Remove any remaining '..' sequences
+      fileName = fileName.replace(/[\/\\]/g, ''); // Remove path separators
+      fileName = fileName.trim();
+      
+      // Validate sanitized filename
+      if (!fileName || fileName.length === 0) {
+        return res.status(400).json({ error: 'Invalid file name after sanitization' });
+      }
+      
+      // Validate filename length (max 255 characters to be safe)
+      if (fileName.length > 255) {
+        return res.status(400).json({ error: 'File name too long (max 255 characters)' });
+      }
+      
+      // Enforce PDF extension
+      if (!fileName.toLowerCase().endsWith('.pdf')) {
+        return res.status(400).json({ error: 'File name must end with .pdf extension' });
       }
 
       // Track embedding tokens outside transaction for logging
@@ -5564,6 +5596,40 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
             console.error('[AI Letter] Failed to log embedding usage:', error);
           }
         }
+      }
+      
+      // Upload to SharePoint (if configured)
+      try {
+        const spSettings = await db
+          .select()
+          .from(projectSharePointSettings)
+          .where(eq(projectSharePointSettings.projectId, projectId))
+          .limit(1);
+        
+        if (spSettings.length > 0 && spSettings[0].correspondenceFolderPath) {
+          const { SharePointService } = await import('./sharepoint');
+          const spService = new SharePointService();
+          
+          console.log(`[SharePoint Upload] Uploading ${fileName} to SharePoint folder: ${spSettings[0].correspondenceFolderPath}`);
+          
+          const uploadResult = await spService.uploadFile(
+            spSettings[0].sharePointSiteUrl,
+            spSettings[0].correspondenceFolderPath,
+            fileName,
+            file.buffer
+          );
+          
+          if (uploadResult.success) {
+            console.log(`[SharePoint Upload] Successfully uploaded ${fileName} to SharePoint: ${uploadResult.filePath}`);
+          } else {
+            console.error(`[SharePoint Upload] Failed to upload ${fileName}:`, uploadResult.error);
+          }
+        } else {
+          console.log('[SharePoint Upload] SharePoint not configured for this project - skipping upload');
+        }
+      } catch (spError) {
+        // Log error but don't fail the request - SharePoint upload is optional
+        console.error('[SharePoint Upload] Error uploading to SharePoint:', spError);
       }
       
       res.json(letter);

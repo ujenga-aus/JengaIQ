@@ -80,6 +80,7 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
   // Upload metadata dialog state
   const [showMetadataDialog, setShowMetadataDialog] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [letterFileName, setLetterFileName] = useState("");
   const [letterSender, setLetterSender] = useState("");
   const [letterRecipient, setLetterRecipient] = useState("");
   const [letterSubject, setLetterSubject] = useState("");
@@ -264,9 +265,10 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
 
   // Upload letter mutation
   const uploadMutation = useMutation({
-    mutationFn: async ({ file, token, metadata }: { file: File; token: number; metadata: { sender: string; recipient: string; subject: string; letterDate: string } }) => {
+    mutationFn: async ({ file, token, metadata }: { file: File; token: number; metadata: { fileName: string; sender: string; recipient: string; subject: string; letterDate: string } }) => {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('fileName', metadata.fileName);
       formData.append('sender', metadata.sender);
       formData.append('recipient', metadata.recipient);
       formData.append('subject', metadata.subject);
@@ -642,6 +644,7 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
     if (file && file.type === 'application/pdf') {
       // Set pending file and show metadata dialog
       setPendingFile(file);
+      setLetterFileName(file.name); // Set default filename from uploaded file
       setLetterSubject(file.name.replace('.pdf', ''));
       setLetterDate(new Date().toISOString().split('T')[0]); // Default to today's date in YYYY-MM-DD format
       setShowMetadataDialog(true);
@@ -654,10 +657,20 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
     if (!pendingFile) return;
     
     // Validate required fields
-    if (!letterSender.trim() || !letterRecipient.trim() || !letterSubject.trim() || !letterDate) {
+    if (!letterFileName.trim() || !letterSender.trim() || !letterRecipient.trim() || !letterSubject.trim() || !letterDate) {
       toast({
         title: "Missing information",
-        description: "Please fill in all fields",
+        description: "Please fill in all fields (including filename)",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Validate filename ends with .pdf
+    if (!letterFileName.toLowerCase().endsWith('.pdf')) {
+      toast({
+        title: "Invalid filename",
+        description: "Filename must end with .pdf",
         variant: "destructive",
       });
       return;
@@ -679,6 +692,7 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
       file: pendingFile, 
       token,
       metadata: {
+        fileName: letterFileName,
         sender: letterSender,
         recipient: letterRecipient,
         subject: letterSubject,
@@ -689,6 +703,7 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
     // Close dialog and reset form
     setShowMetadataDialog(false);
     setPendingFile(null);
+    setLetterFileName("");
     setLetterSender("");
     setLetterRecipient("");
     setLetterSubject("");
@@ -1412,6 +1427,18 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
           
           <div className="space-y-4 py-4">
             <div className="space-y-2">
+              <Label htmlFor="filename">File Name (for SharePoint)</Label>
+              <Input
+                id="filename"
+                placeholder="e.g., Letter-01-Design-Clarification.pdf"
+                value={letterFileName}
+                onChange={(e) => setLetterFileName(e.target.value)}
+                data-testid="input-letter-filename"
+              />
+              <p className="text-xs text-muted-foreground">This will be the filename when saved to SharePoint</p>
+            </div>
+            
+            <div className="space-y-2">
               <Label htmlFor="sender">Sender</Label>
               <Input
                 id="sender"
@@ -1462,6 +1489,7 @@ export function AILetterTab({ projectId }: AILetterTabProps) {
               onClick={() => {
                 setShowMetadataDialog(false);
                 setPendingFile(null);
+                setLetterFileName("");
                 setLetterSender("");
                 setLetterRecipient("");
                 setLetterSubject("");

@@ -976,10 +976,10 @@ export function WorksheetsDialog({
           </div>
 
           {/* Table */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 min-w-0 overflow-hidden">
             <div 
               ref={parentRef}
-              className="h-full overflow-auto focus:outline-none"
+              className="h-full min-w-0 overflow-auto focus:outline-none"
               onKeyDown={handleTableKeyDown}
               tabIndex={0}
             >
@@ -988,7 +988,7 @@ export function WorksheetsDialog({
                 collisionDetection={closestCenter}
                 onDragEnd={handleDragEnd}
               >
-                <table className="border-collapse">
+                <table className="min-w-max border-collapse">
                   <thead className="sticky top-0 bg-muted z-10">
                     <tr>
                       <th className="text-data font-medium text-left p-2 border-b w-8">

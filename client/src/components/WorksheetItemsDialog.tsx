@@ -400,7 +400,7 @@ export default function WorksheetItemsDialog({
           <Button
             variant="ghost"
             className="w-full justify-start font-normal h-auto px-2 hover-elevate text-data"
-            style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+            style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
             data-testid={`button-resource-lookup-${itemId || 'new'}`}
           >
             {currentResource ? (
@@ -548,7 +548,7 @@ export default function WorksheetItemsDialog({
                   <TableRow key={item.id} className="hover:bg-muted/50" data-testid={`row-item-${item.id}`}>
                     <TableCell
                       className="text-data text-muted-foreground bg-muted/30"
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                       data-testid={`cell-lq-${item.id}`}
                     >
                       {lineNumber}
@@ -565,13 +565,13 @@ export default function WorksheetItemsDialog({
                           onBlur={() => setEditingCell(null)}
                           autoFocus
                           className="border-0 focus-visible:ring-1 h-auto py-0 text-data"
-                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                          style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                           data-testid={`input-description-${item.id}`}
                         />
                       ) : (
                         <div 
                           className="text-data px-4" 
-                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                          style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                         >
                           {editValues[`${item.id}-description`] ?? item.description ?? '-'}
                         </div>
@@ -589,13 +589,13 @@ export default function WorksheetItemsDialog({
                           onBlur={() => setEditingCell(null)}
                           autoFocus
                           className="border-0 focus-visible:ring-1 h-auto py-0 text-data font-mono"
-                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                          style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                           data-testid={`input-formula-${item.id}`}
                         />
                       ) : (
                         <div 
                           className="text-data font-mono px-4" 
-                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                          style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                         >
                           {editValues[`${item.id}-formula`] ?? item.formula ?? '-'}
                         </div>
@@ -606,35 +606,35 @@ export default function WorksheetItemsDialog({
                     </TableCell>
                     <TableCell 
                       className="text-muted-foreground text-data px-4" 
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                       data-testid={`cell-unit-${item.id}`}
                     >
                       {resource?.unit || '-'}
                     </TableCell>
                     <TableCell 
                       className="text-muted-foreground text-data text-right px-4" 
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                       data-testid={`cell-result-${item.id}`}
                     >
                       {item.result || '-'}
                     </TableCell>
                     <TableCell 
                       className="text-muted-foreground text-data text-right px-4" 
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                       data-testid={`cell-tender-rate-${item.id}`}
                     >
                       {resource?.tenderRate || '-'}
                     </TableCell>
                     <TableCell 
                       className="text-muted-foreground text-data text-right px-4 font-medium" 
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                       data-testid={`cell-total-${item.id}`}
                     >
                       {item.total || '-'}
                     </TableCell>
                     <TableCell 
                       className="px-2" 
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                     >
                       <Button
                         variant="ghost"
@@ -653,7 +653,7 @@ export default function WorksheetItemsDialog({
                 <TableRow className="bg-muted/50" data-testid="row-new-item">
                   <TableCell 
                     className="text-data text-muted-foreground bg-muted/30 px-4" 
-                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                   >
                     {items.length + 1}
                   </TableCell>
@@ -663,7 +663,7 @@ export default function WorksheetItemsDialog({
                       onChange={(e) => setNewRowData({ ...newRowData, description: e.target.value })}
                       placeholder="Description *"
                       className="border-0 focus-visible:ring-1 h-auto py-0 text-data"
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                       data-testid="input-new-description"
                       autoFocus
                     />
@@ -674,7 +674,7 @@ export default function WorksheetItemsDialog({
                       onChange={(e) => setNewRowData({ ...newRowData, formula: e.target.value })}
                       placeholder="Formula"
                       className="border-0 focus-visible:ring-1 h-auto py-0 text-data font-mono"
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                       data-testid="input-new-formula"
                     />
                   </TableCell>
@@ -683,33 +683,33 @@ export default function WorksheetItemsDialog({
                   </TableCell>
                   <TableCell 
                     className="text-muted-foreground text-data px-4" 
-                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                   >
                     {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.unit || '-'}
                   </TableCell>
                   <TableCell 
                     className="text-muted-foreground text-data text-right px-4 italic" 
-                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                     data-testid="cell-new-result"
                   >
                     auto
                   </TableCell>
                   <TableCell 
                     className="text-muted-foreground text-data text-right px-4" 
-                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                   >
                     {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.tenderRate || '-'}
                   </TableCell>
                   <TableCell 
                     className="text-muted-foreground text-data text-right px-4 italic" 
-                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                     data-testid="cell-new-total"
                   >
                     auto
                   </TableCell>
                   <TableCell 
                     className="px-2" 
-                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    style={{ paddingTop: 'var(--grid-cell-py)', paddingBottom: 'var(--grid-cell-py)' }}
                   >
                     <Button
                       variant="ghost"

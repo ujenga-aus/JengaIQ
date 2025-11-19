@@ -5666,14 +5666,25 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
         .from(correspondenceLetters)
         .where(eq(correspondenceLetters.projectId, projectId));
 
-      // Filter letters - exclude the query letter itself
-      // Note: We include ALL letters regardless of date to enable ChatGPT-like comprehensive search
-      // This ensures SharePoint letters without dates are still searchable
+      // Filter letters - exclude the query letter itself and letters dated after the selected letter
+      // This prevents suggesting "future" letters that didn't exist when the selected letter was written
       const eligibleLetters = projectLetters.filter(letter => {
         // Exclude the query letter itself
         if (letter.id === letterId) return false;
         
-        return true; // Include all other letters for semantic search
+        // If the query letter has a date, exclude letters dated after it
+        if (queryLetter.letterDate) {
+          // If the candidate letter has no date, exclude it (we can't determine chronology)
+          if (!letter.letterDate) return false;
+          
+          // Exclude letters dated after the query letter
+          const queryDate = new Date(queryLetter.letterDate);
+          const letterDate = new Date(letter.letterDate);
+          if (letterDate > queryDate) return false;
+        }
+        // If query letter has no date, include all letters (can't apply date filter)
+        
+        return true; // Include letters on or before the query letter's date
       });
 
       let similarLetters: any[] = [];

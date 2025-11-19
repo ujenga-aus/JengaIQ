@@ -674,7 +674,7 @@ export default function WorksheetItemsDialog({
             </Button>
           </div>
 
-        <div className="flex-1 overflow-auto mx-6 my-4 border rounded-md">
+        <div className="flex-1 overflow-auto mx-6 my-4 border rounded-md" style={{ scrollbarGutter: 'stable' }}>
           <Table className="table-fixed border-separate border-spacing-0">
             <colgroup>
               <col style={{ width: `${columnWidths.lq}px`, minWidth: '60px' }} />

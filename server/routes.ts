@@ -8433,27 +8433,70 @@ Provide ONLY the updated cell value, without any preamble or explanation.`;
           .limit(parseInt(String(limit)) * 2); // Fetch more for similarity filtering
       }
 
-      // Calculate cosine similarity for each email
+      // Helper function: Calculate keyword match score
+      const calculateKeywordScore = (email: any, searchQuery: string): number => {
+        const queryTerms = searchQuery.toLowerCase().trim().split(/\s+/);
+        const subject = (email.subject || '').toLowerCase();
+        const fromAddress = (email.fromAddress || '').toLowerCase();
+        const snippet = (email.snippet || '').toLowerCase();
+        
+        let matchCount = 0;
+        let totalTerms = queryTerms.length;
+        
+        // Count how many query terms appear in subject, from, or snippet
+        for (const term of queryTerms) {
+          const inSubject = subject.includes(term);
+          const inFrom = fromAddress.includes(term);
+          const inSnippet = snippet.includes(term);
+          
+          if (inSubject || inFrom || inSnippet) {
+            matchCount++;
+            
+            // Bonus: Exact match in subject gets extra weight
+            if (inSubject) {
+              matchCount += 0.5;
+            }
+          }
+        }
+        
+        // Normalize to 0-1 range (can exceed 1.0 if subject matches)
+        return Math.min(matchCount / totalTerms, 1.5) / 1.5;
+      };
+
+      // Calculate hybrid score (keyword + semantic) for each email
       const results = emails
         .map((email: any) => {
           try {
+            // Calculate semantic similarity
             const emailEmbedding = JSON.parse(email.embedding || '[]');
-            if (emailEmbedding.length === 0) {
-              return { ...email, similarity: 0 };
+            let semanticScore = 0;
+            
+            if (emailEmbedding.length > 0) {
+              let dotProduct = 0;
+              let normA = 0;
+              let normB = 0;
+              for (let i = 0; i < queryEmbedding.length; i++) {
+                dotProduct += queryEmbedding[i] * (emailEmbedding[i] || 0);
+                normA += queryEmbedding[i] * queryEmbedding[i];
+                normB += (emailEmbedding[i] || 0) * (emailEmbedding[i] || 0);
+              }
+              semanticScore = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
             }
+            
+            // Calculate keyword match score
+            const keywordScore = calculateKeywordScore(email, query);
+            
+            // Hybrid scoring: 60% keyword + 40% semantic
+            // This ensures exact matches get high scores while still benefiting from semantic understanding
+            const hybridScore = (keywordScore * 0.6) + (semanticScore * 0.4);
 
-            // Calculate cosine similarity
-            let dotProduct = 0;
-            let normA = 0;
-            let normB = 0;
-            for (let i = 0; i < queryEmbedding.length; i++) {
-              dotProduct += queryEmbedding[i] * (emailEmbedding[i] || 0);
-              normA += queryEmbedding[i] * queryEmbedding[i];
-              normB += (emailEmbedding[i] || 0) * (emailEmbedding[i] || 0);
-            }
-            const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-
-            return { ...email, similarity, embedding: undefined }; // Remove embedding from response
+            return { 
+              ...email, 
+              similarity: hybridScore,
+              keywordScore, // Include for debugging
+              semanticScore, // Include for debugging
+              embedding: undefined 
+            };
           } catch (error) {
             console.error('Error calculating similarity:', error);
             return { ...email, similarity: 0, embedding: undefined };

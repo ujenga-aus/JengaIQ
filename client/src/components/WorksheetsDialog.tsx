@@ -42,6 +42,12 @@ import { CSS } from '@dnd-kit/utilities';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Worksheet } from '@shared/schema';
 
+// Extended worksheet type with statistics
+type WorksheetWithStats = Worksheet & {
+  itemCount?: number;
+  totalSum?: string;
+};
+
 interface WorksheetsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -62,13 +68,13 @@ function SortableRow({
   measureElement,
   columnWidths,
 }: {
-  worksheet: Worksheet;
+  worksheet: WorksheetWithStats;
   editingCell: { id: string; field: string } | null;
   selectedCell: { id: string; field: string } | null;
   onCellClick: (id: string, field: string) => void;
   onCellDoubleClick: (id: string, field: string, currentValue: string | null) => void;
   onFieldChange: (id: string, field: string, value: string) => void;
-  onViewItems: (worksheet: Worksheet) => void;
+  onViewItems: (worksheet: WorksheetWithStats) => void;
   onDelete: (id: string) => void;
   virtualRow?: { index: number; start: number; size: number; key: string | number | bigint };
   measureElement?: (node: Element | null) => void;
@@ -201,6 +207,23 @@ function SortableRow({
             );
           })}
 
+          {/* Total column (read-only) */}
+          <td 
+            className="p-2 text-right"
+            style={{ 
+              width: `${columnWidths.total}px`,
+              minWidth: `${columnWidths.total}px`,
+              maxWidth: `${columnWidths.total}px`,
+            }}
+            data-testid={`cell-total-${worksheet.id}`}
+          >
+            <span className={`text-data block truncate font-medium ${
+              (worksheet.itemCount || 0) === 0 ? 'text-muted-foreground' : ''
+            }`}>
+              {parseFloat(worksheet.totalSum || '0').toFixed(2)}
+            </span>
+          </td>
+
           {/* Action buttons */}
           <td className="p-2 w-24">
             <div className="flex gap-1">
@@ -213,9 +236,10 @@ function SortableRow({
                 }}
                 className="h-7 w-7"
                 data-testid={`button-view-items-${worksheet.id}`}
-                title="View worksheet items"
+                title={`View worksheet items${(worksheet.itemCount || 0) === 0 ? ' (No items)' : ` (${worksheet.itemCount} items)`}`}
+                disabled={(worksheet.itemCount || 0) === 0}
               >
-                <FileText className="h-4 w-4" />
+                <FileText className={`h-4 w-4 ${(worksheet.itemCount || 0) === 0 ? 'text-muted-foreground opacity-50' : ''}`} />
               </Button>
               <Button
                 size="icon"
@@ -267,6 +291,7 @@ export function WorksheetsDialog({
     wkshtCode: 150,
     description: 350,
     unit: 100,
+    total: 120,
   });
   const [resizingColumn, setResizingColumn] = useState<string | null>(null);
   const columnResizeRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
@@ -308,7 +333,7 @@ export function WorksheetsDialog({
   };
 
   // Fetch worksheets
-  const { data: fetchedWorksheets = [], isLoading } = useQuery<Worksheet[]>({
+  const { data: fetchedWorksheets = [], isLoading } = useQuery<WorksheetWithStats[]>({
     queryKey: ['/api/projects', projectId, 'worksheets'],
     enabled: open && !!projectId,
   });
@@ -854,6 +879,13 @@ export function WorksheetsDialog({
                           )}
                         </div>
                       </th>
+                      <th
+                        className="text-data font-medium text-right p-2 border-b select-none"
+                        style={{ width: `${columnWidths.total}px`, minWidth: `${columnWidths.total}px` }}
+                        data-testid="header-total"
+                      >
+                        <span>Total</span>
+                      </th>
                       <th className="text-data font-medium text-left p-2 border-b w-24">
                         Actions
                       </th>
@@ -899,6 +931,9 @@ export function WorksheetsDialog({
                             data-testid="input-new-unit"
                             placeholder="Unit"
                           />
+                        </td>
+                        <td className="p-2 text-right">
+                          <span className="text-data text-muted-foreground">0.00</span>
                         </td>
                         <td className="p-2 w-24">
                           <div className="flex gap-1">

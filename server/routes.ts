@@ -11386,14 +11386,33 @@ CRITICAL REQUIREMENTS:
         return res.status(403).json({ error: 'Access denied' });
       }
       
-      const { worksheets } = await import('@shared/schema');
+      const { worksheets, worksheetItems } = await import('@shared/schema');
 
       const items = await db
         .select()
         .from(worksheets)
         .where(eq(worksheets.projectId, projectId));
 
-      res.json(items);
+      // Fetch statistics for each worksheet (item count and total sum)
+      const worksheetsWithStats = await Promise.all(
+        items.map(async (worksheet) => {
+          const stats = await db
+            .select({
+              itemCount: sql<number>`count(*)::int`,
+              totalSum: sql<string>`coalesce(sum(${worksheetItems.total}), 0)`,
+            })
+            .from(worksheetItems)
+            .where(eq(worksheetItems.worksheetId, worksheet.id));
+
+          return {
+            ...worksheet,
+            itemCount: stats[0]?.itemCount || 0,
+            totalSum: stats[0]?.totalSum || '0',
+          };
+        })
+      );
+
+      res.json(worksheetsWithStats);
     } catch (error) {
       console.error('Error fetching worksheets:', error);
       res.status(500).json({ error: 'Failed to fetch worksheets' });

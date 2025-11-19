@@ -38,22 +38,13 @@ export function parseFormula(
     if (allItems && allItems.length > 0) {
       // Match #LQ followed by digits (case-insensitive)
       const lqPattern = /#LQ(\d+)/gi;
-      const visitedRefs = new Set<string>();
       
       processedFormula = processedFormula.replace(lqPattern, (match, lqNumber) => {
-        // Circular reference detection
+        // Circular reference detection (only block self-references)
         if (currentItemLq && lqNumber === currentItemLq) {
           console.warn(`Circular reference detected: #LQ${lqNumber} references itself`);
           return '0';
         }
-
-        // Track visited references to prevent infinite loops
-        const refKey = `#LQ${lqNumber}`;
-        if (visitedRefs.has(refKey)) {
-          console.warn(`Duplicate reference detected: ${refKey}`);
-          return '0';
-        }
-        visitedRefs.add(refKey);
 
         // Find the item with matching LQ number
         const referencedItem = allItems.find(item => 

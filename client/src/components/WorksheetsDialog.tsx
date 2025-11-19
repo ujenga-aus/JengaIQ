@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useMemo, useCallback, KeyboardEvent } from
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { X, Plus, Trash2, Upload, FileText, GripVertical } from 'lucide-react';
-import Draggable from 'react-draggable';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
@@ -10,6 +9,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useWorksheetsWebSocket } from '@/hooks/useWorksheetsWebSocket';
 import { WorksheetsImportDialog } from './WorksheetsImportDialog';
 import WorksheetItemsDialog from './WorksheetItemsDialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -54,6 +60,7 @@ function SortableRow({
   onDelete,
   virtualRow,
   measureElement,
+  columnWidths,
 }: {
   worksheet: Worksheet;
   editingCell: { id: string; field: string } | null;
@@ -65,6 +72,7 @@ function SortableRow({
   onDelete: (id: string) => void;
   virtualRow?: { index: number; start: number; size: number; key: string | number | bigint };
   measureElement?: (node: Element | null) => void;
+  columnWidths: Record<string, number>;
 }) {
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +176,11 @@ function SortableRow({
                 onClick={() => onCellClick(worksheet.id, field)}
                 onDoubleClick={() => onCellDoubleClick(worksheet.id, field, value)}
                 data-testid={`cell-${field}-${worksheet.id}`}
+                style={{ 
+                  width: `${columnWidths[field]}px`,
+                  minWidth: `${columnWidths[field]}px`,
+                  maxWidth: `${columnWidths[field]}px`,
+                }}
               >
                 {isEditing ? (
                   <Input
@@ -250,24 +263,15 @@ export function WorksheetsDialog({
     description: '', 
     unit: ''
   });
-  const [isResizing, setIsResizing] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     wkshtCode: 150,
     description: 350,
     unit: 100,
   });
   const [resizingColumn, setResizingColumn] = useState<string | null>(null);
-  const columnResizeRef = useRef<{ column: string; startX: number; startWidth: number; nextColumn?: string; nextStartWidth?: number } | null>(null);
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-  const resizeRef = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number } | null>(null);
-  const isEscapingGrid = useRef(false);
+  const columnResizeRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
   const saveTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
   const parentRef = useRef<HTMLDivElement>(null);
-  
-  const positionRef = useRef({ x: 0, y: 0 });
-  const sizeRef = useRef({ width: 700, height: 500 });
-  const [size, setSize] = useState({ width: 700, height: 500 });
-  const [initialPosition, setInitialPosition] = useState({ x: 0, y: 0 });
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [selectedWorksheet, setSelectedWorksheet] = useState<Worksheet | null>(null);
 
@@ -278,59 +282,28 @@ export function WorksheetsDialog({
     };
   }, []);
 
-  // Load saved position/size/column widths from localStorage when dialog opens
+  // Load saved column widths from localStorage when dialog opens
   useEffect(() => {
     if (open && user?.id) {
-      const storageKey = `worksheets_${user.id}`;
+      const storageKey = `worksheets_columns_${user.id}`;
       const saved = localStorage.getItem(storageKey);
-      
-      const defaultSize = { width: 700, height: 500 };
-      const defaultPosition = {
-        x: (window.innerWidth - defaultSize.width) / 2,
-        y: (window.innerHeight - defaultSize.height) / 2
-      };
       
       if (saved) {
         try {
-          const { position: savedPosition, size: savedSize, columnWidths: savedWidths } = JSON.parse(saved);
-          if (savedPosition && savedSize) {
-            const maxX = window.innerWidth - savedSize.width;
-            const maxY = window.innerHeight - savedSize.height;
-            const pos = {
-              x: Math.max(0, Math.min(savedPosition.x, maxX)),
-              y: Math.max(0, Math.min(savedPosition.y, maxY))
-            };
-            positionRef.current = pos;
-            sizeRef.current = savedSize;
-            setInitialPosition(pos);
-            setSize(savedSize);
-            
-            if (savedWidths) {
-              setColumnWidths(savedWidths);
-            }
-            return;
-          }
+          const savedWidths = JSON.parse(saved);
+          setColumnWidths(savedWidths);
         } catch (error) {
-          console.warn('Failed to load saved worksheets preferences:', error);
+          console.warn('Failed to load saved column widths:', error);
         }
       }
-      
-      positionRef.current = defaultPosition;
-      sizeRef.current = defaultSize;
-      setInitialPosition(defaultPosition);
-      setSize(defaultSize);
     }
   }, [open, user?.id]);
 
-  // Save position/size to localStorage
-  const savePreferences = (newPosition?: { x: number; y: number }, newSize?: { width: number; height: number }, newWidths?: Record<string, number>) => {
+  // Save column widths to localStorage
+  const saveColumnWidths = (widths: Record<string, number>) => {
     if (user?.id) {
-      const storageKey = `worksheets_${user.id}`;
-      localStorage.setItem(storageKey, JSON.stringify({
-        position: newPosition || positionRef.current,
-        size: newSize || sizeRef.current,
-        columnWidths: newWidths || columnWidths,
-      }));
+      const storageKey = `worksheets_columns_${user.id}`;
+      localStorage.setItem(storageKey, JSON.stringify(widths));
     }
   };
 
@@ -499,47 +472,42 @@ export function WorksheetsDialog({
     },
   });
 
-  // Reorder mutation for drag-and-drop
+  // Reorder mutation (for drag-and-drop)
   const reorderMutation = useMutation({
-    mutationFn: async ({ reorderedItems }: { reorderedItems: { id: string; sortingIndex: number }[] }) => {
+    mutationFn: async (orderedIds: string[]) => {
       return await apiRequest(
-        'PATCH',
+        'POST',
         `/api/projects/${projectId}/worksheets/reorder`,
-        { worksheets: reorderedItems }
+        { orderedIds }
       );
     },
-    onMutate: async ({ reorderedItems }) => {
-      // Cancel any outgoing refetches
+    onMutate: async (orderedIds) => {
       await queryClient.cancelQueries({
         queryKey: ['/api/projects', projectId, 'worksheets'],
       });
 
-      // Snapshot the previous value
       const previousWorksheets = queryClient.getQueryData<Worksheet[]>([
         '/api/projects',
         projectId,
         'worksheets',
       ]);
 
-      // Create optimistic items with updated sortingIndex
-      const reorderedMap = new Map(reorderedItems.map(item => [item.id, item.sortingIndex]));
-      const optimisticWorksheets = previousWorksheets?.map(ws => ({
-        ...ws,
-        sortingIndex: reorderedMap.get(ws.id) ?? ws.sortingIndex,
-      }));
-
-      // Optimistically update to the new order
-      if (optimisticWorksheets) {
-        queryClient.setQueryData<Worksheet[]>(
-          ['/api/projects', projectId, 'worksheets'],
-          optimisticWorksheets
-        );
-      }
+      // Optimistically update
+      queryClient.setQueryData<Worksheet[]>(
+        ['/api/projects', projectId, 'worksheets'],
+        (old) => {
+          if (!old) return old;
+          const ordered = orderedIds
+            .map(id => old.find(w => w.id === id))
+            .filter((w): w is Worksheet => w !== undefined)
+            .map((w, index) => ({ ...w, sortingIndex: index }));
+          return ordered;
+        }
+      );
 
       return { previousWorksheets };
     },
     onError: (error: any, variables, context) => {
-      // Rollback on error
       if (context?.previousWorksheets) {
         queryClient.setQueryData(
           ['/api/projects', projectId, 'worksheets'],
@@ -553,7 +521,6 @@ export function WorksheetsDialog({
       });
     },
     onSettled: () => {
-      // Refetch to sync with server
       queryClient.invalidateQueries({
         queryKey: ['/api/projects', projectId, 'worksheets'],
       });
@@ -586,7 +553,7 @@ export function WorksheetsDialog({
     },
   });
 
-  // DnD sensors for drag-and-drop
+  // Drag and drop sensors
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -594,284 +561,70 @@ export function WorksheetsDialog({
     })
   );
 
-  // Handle drag end - matching BOQTab.tsx pattern
+  // Handle drag end
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (!over || !worksheets || sortColumn !== null) return;
+    if (over && active.id !== over.id) {
+      const oldIndex = worksheets.findIndex((w) => w.id === active.id);
+      const newIndex = worksheets.findIndex((w) => w.id === over.id);
 
-    if (active.id !== over.id) {
-      const oldIndex = worksheets.findIndex((worksheet) => worksheet.id === active.id);
-      const newIndex = worksheets.findIndex((worksheet) => worksheet.id === over.id);
-
-      // Reorder array and calculate new sortingIndex values
-      const reordered = arrayMove(worksheets, oldIndex, newIndex);
-      const reorderedItems = reordered.map((worksheet, index) => ({
-        id: worksheet.id,
-        sortingIndex: index,
-      }));
-
-      // Persist reordered items to server with correct payload structure
-      reorderMutation.mutate({ reorderedItems });
-    }
-  };
-
-  // Handle inline field update with debouncing (300ms)
-  const handleFieldChange = (id: string, field: string, value: string) => {
-    // Clear existing timer for this worksheet
-    if (saveTimerRef.current[id]) {
-      clearTimeout(saveTimerRef.current[id]);
-    }
-    
-    // Immediately update UI optimistically
-    queryClient.setQueryData<Worksheet[]>(
-      ['/api/projects', projectId, 'worksheets'],
-      (old) => {
-        if (!old) return old;
-        return old.map((worksheet) =>
-          worksheet.id === id ? { ...worksheet, [field]: value } : worksheet
-        );
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newOrder = arrayMove(worksheets, oldIndex, newIndex);
+        reorderMutation.mutate(newOrder.map(w => w.id));
       }
-    );
-    
-    // Exit edit mode
-    setEditingCell(null);
-    
-    // Debounce the actual server save (300ms) - matching BOQTab.tsx pattern
-    saveTimerRef.current[id] = setTimeout(() => {
-      // Persist to server via mutation with correct parameter format
-      updateMutation.mutate({ id, updates: { [field]: value }, showToast: false });
-      delete saveTimerRef.current[id];
-    }, 300);
+    }
   };
-  
-  // Initialize selected cell when dialog opens with data
-  useEffect(() => {
-    if (open && worksheets.length > 0 && !selectedCell && !editingCell && !showNewRow) {
-      setSelectedCell({ id: worksheets[0].id, field: 'wkshtCode' });
-    }
-  }, [open, worksheets.length, selectedCell, editingCell, showNewRow]);
-  
-  // Focus the table container after navigation or when selection changes
-  useEffect(() => {
-    if (showNewRow) return;
-    
-    if (selectedCell && !editingCell && tableContainerRef.current && !isEscapingGrid.current) {
-      setTimeout(() => {
-        tableContainerRef.current?.focus();
-      }, 0);
-    }
-    
-    if (isEscapingGrid.current) {
-      setTimeout(() => {
-        isEscapingGrid.current = false;
-      }, 100);
-    }
-  }, [selectedCell, editingCell, showNewRow]);
+
+  // Cell navigation and editing handlers
+  const handleCellClick = (id: string, field: string) => {
+    setSelectedCell({ id, field });
+    setEditingCell(null);
+  };
 
   const handleCellDoubleClick = (id: string, field: string, currentValue: string | null) => {
     setEditingCell({ id, field });
   };
 
-  // Excel-like keyboard navigation
-  const editableFields = ['wkshtCode', 'description', 'unit'];
-  
-  const navigateCell = (direction: 'up' | 'down' | 'left' | 'right' | 'enter') => {
-    if (!selectedCell) return;
-    
-    const { id, field } = selectedCell;
-    const currentRowIndex = worksheets.findIndex(w => w.id === id);
-    if (currentRowIndex === -1) return;
-    
-    const maxRow = worksheets.length - 1;
-    const currentFieldIndex = editableFields.indexOf(field);
-    
-    let newRowIndex = currentRowIndex;
-    let newField = field;
-    
-    switch (direction) {
-      case 'up':
-        newRowIndex = Math.max(0, currentRowIndex - 1);
-        break;
-      case 'down':
-      case 'enter':
-        newRowIndex = Math.min(maxRow, currentRowIndex + 1);
-        break;
-      case 'left':
-        if (currentFieldIndex > 0) {
-          newField = editableFields[currentFieldIndex - 1];
-        } else if (currentRowIndex > 0) {
-          newRowIndex = currentRowIndex - 1;
-          newField = editableFields[editableFields.length - 1];
-        }
-        break;
-      case 'right':
-        if (currentFieldIndex < editableFields.length - 1) {
-          newField = editableFields[currentFieldIndex + 1];
-        } else if (currentRowIndex < maxRow) {
-          newRowIndex = currentRowIndex + 1;
-          newField = editableFields[0];
-        }
-        break;
+  const handleFieldChange = (id: string, field: string, value: string) => {
+    // Cancel any pending save for this field
+    const saveKey = `${id}-${field}`;
+    if (saveTimerRef.current[saveKey]) {
+      clearTimeout(saveTimerRef.current[saveKey]);
     }
-    
-    setSelectedCell({ id: worksheets[newRowIndex].id, field: newField });
-  };
-  
-  const handleTableKeyDown = (e: React.KeyboardEvent) => {
-    if (editingCell) return;
-    if ((e.ctrlKey || e.metaKey || e.altKey) && e.key !== 'Tab') return;
-    
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      navigateCell('up');
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      navigateCell('down');
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      navigateCell('left');
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      navigateCell('right');
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (selectedCell) {
-        const worksheet = worksheets.find(w => w.id === selectedCell.id);
-        if (worksheet) {
-          const currentValue = worksheet[selectedCell.field as keyof Worksheet] as string;
-          handleCellDoubleClick(worksheet.id, selectedCell.field, currentValue);
-        }
-      }
-    } else if (e.key === 'Tab') {
-      if (selectedCell) {
-        const { id, field } = selectedCell;
-        const rowIndex = worksheets.findIndex(w => w.id === id);
-        if (rowIndex === -1) return;
-        const maxRow = worksheets.length - 1;
-        const currentFieldIndex = editableFields.indexOf(field);
-        const isAtStart = rowIndex === 0 && currentFieldIndex === 0;
-        const isAtEnd = rowIndex === maxRow && currentFieldIndex === editableFields.length - 1;
-        
-        if ((e.shiftKey && isAtStart) || (!e.shiftKey && isAtEnd)) {
-          isEscapingGrid.current = true;
-          return;
-        }
-        
-        e.preventDefault();
-        navigateCell(e.shiftKey ? 'left' : 'right');
-      }
-    }
-  };
-  
-  const handleCellClick = (id: string, field: string) => {
-    setSelectedCell({ id, field });
-  };
 
-  const handleAddRow = () => {
-    if (!newRowData.wkshtCode) {
-      toast({
-        title: 'Validation error',
-        description: 'Code is required.',
-        variant: 'destructive',
+    // Debounce save
+    saveTimerRef.current[saveKey] = setTimeout(() => {
+      updateMutation.mutate({
+        id,
+        updates: { [field]: value || null },
+        showToast: false,
       });
-      return;
-    }
+      delete saveTimerRef.current[saveKey];
+    }, 500);
 
-    createMutation.mutate({
-      projectId,
-      wkshtCode: newRowData.wkshtCode,
-      description: newRowData.description || null,
-      unit: newRowData.unit || null,
-    });
+    setEditingCell(null);
   };
 
-  const handleNewRowKeyDown = (e: React.KeyboardEvent, isLastField: boolean = false) => {
-    e.stopPropagation();
-    
-    if (e.key === 'Enter' && isLastField) {
-      e.preventDefault();
-      handleAddRow();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setShowNewRow(false);
-      setNewRowData({ wkshtCode: '', description: '', unit: '' });
-    }
-  };
-
-  const handleDelete = (id: string) => {
-    deleteMutation.mutate(id);
-  };
-
+  // Column header click for sorting
   const handleColumnHeaderClick = (column: keyof Worksheet) => {
     if (sortColumn === column) {
-      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortColumn(column);
       setSortDirection('asc');
     }
   };
 
-  // Handle dialog resize
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    resizeRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startWidth: sizeRef.current.width,
-      startHeight: sizeRef.current.height,
-    };
-  };
-
-  useEffect(() => {
-    if (!isResizing) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!resizeRef.current) return;
-      
-      const deltaX = e.clientX - resizeRef.current.startX;
-      const deltaY = e.clientY - resizeRef.current.startY;
-      
-      const newWidth = Math.max(600, resizeRef.current.startWidth + deltaX);
-      const newHeight = Math.max(300, resizeRef.current.startHeight + deltaY);
-      
-      sizeRef.current = { width: newWidth, height: newHeight };
-      setSize({ width: newWidth, height: newHeight });
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      resizeRef.current = null;
-      savePreferences(undefined, sizeRef.current);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing]);
-
-  // Handle column resizing
+  // Column resize handlers
   const handleColumnMouseDown = (e: React.MouseEvent, column: string) => {
     e.preventDefault();
     e.stopPropagation();
     setResizingColumn(column);
-    
-    const columns = Object.keys(columnWidths);
-    const currentIndex = columns.indexOf(column);
-    const nextColumn = currentIndex < columns.length - 1 ? columns[currentIndex + 1] : undefined;
-    
     columnResizeRef.current = {
       column,
       startX: e.clientX,
       startWidth: columnWidths[column],
-      nextColumn,
-      nextStartWidth: nextColumn ? columnWidths[nextColumn] : undefined,
     };
   };
 
@@ -880,24 +633,20 @@ export function WorksheetsDialog({
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!columnResizeRef.current) return;
-      
+
       const delta = e.clientX - columnResizeRef.current.startX;
-      const newWidth = Math.max(80, columnResizeRef.current.startWidth + delta);
-      
-      const newWidths = { ...columnWidths, [columnResizeRef.current.column]: newWidth };
-      
-      if (columnResizeRef.current.nextColumn && columnResizeRef.current.nextStartWidth !== undefined) {
-        const nextWidth = Math.max(80, columnResizeRef.current.nextStartWidth - delta);
-        newWidths[columnResizeRef.current.nextColumn] = nextWidth;
-      }
-      
-      setColumnWidths(newWidths);
+      const newWidth = Math.max(50, columnResizeRef.current.startWidth + delta);
+
+      setColumnWidths(prev => ({
+        ...prev,
+        [columnResizeRef.current!.column]: newWidth,
+      }));
     };
 
     const handleMouseUp = () => {
       setResizingColumn(null);
       columnResizeRef.current = null;
-      savePreferences(undefined, undefined, columnWidths);
+      saveColumnWidths(columnWidths);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -909,77 +658,139 @@ export function WorksheetsDialog({
     };
   }, [resizingColumn, columnWidths]);
 
+  // Keyboard navigation
+  const handleTableKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!selectedCell || editingCell) return;
+
+    const currentIndex = worksheets.findIndex(w => w.id === selectedCell.id);
+    const fields = ['wkshtCode', 'description', 'unit'];
+    const currentFieldIndex = fields.indexOf(selectedCell.field);
+
+    if (currentIndex === -1 || currentFieldIndex === -1) return;
+
+    let newId: string | null = null;
+    let newField: string | null = null;
+
+    switch (e.key) {
+      case 'ArrowUp':
+        e.preventDefault();
+        if (currentIndex > 0) {
+          newId = worksheets[currentIndex - 1].id;
+          newField = selectedCell.field;
+        }
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        if (currentIndex < worksheets.length - 1) {
+          newId = worksheets[currentIndex + 1].id;
+          newField = selectedCell.field;
+        }
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        if (currentFieldIndex > 0) {
+          newId = selectedCell.id;
+          newField = fields[currentFieldIndex - 1];
+        }
+        break;
+      case 'ArrowRight':
+      case 'Tab':
+        e.preventDefault();
+        if (currentFieldIndex < fields.length - 1) {
+          newId = selectedCell.id;
+          newField = fields[currentFieldIndex + 1];
+        }
+        break;
+      case 'Enter':
+        e.preventDefault();
+        const currentValue = worksheets[currentIndex][selectedCell.field as keyof Worksheet] as string | null;
+        handleCellDoubleClick(selectedCell.id, selectedCell.field, currentValue);
+        break;
+    }
+
+    if (newId && newField) {
+      setSelectedCell({ id: newId, field: newField });
+    }
+  };
+
+  // Handle new row
+  const handleAddNewRow = () => {
+    if (!newRowData.wkshtCode.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Code is required.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    createMutation.mutate({
+      wkshtCode: newRowData.wkshtCode,
+      description: newRowData.description || null,
+      unit: newRowData.unit || null,
+    });
+  };
+
+  const handleNewRowKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, isLast = false) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddNewRow();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowNewRow(false);
+      setNewRowData({ wkshtCode: '', description: '', unit: '' });
+    }
+  };
+
   if (!open) return null;
 
   const isDragEnabled = sortColumn === null;
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm">
-      <Draggable
-        handle=".drag-handle"
-        position={initialPosition}
-        onStop={(e, data) => {
-          positionRef.current = { x: data.x, y: data.y };
-          savePreferences({ x: data.x, y: data.y });
-        }}
-      >
-        <div
-          className="absolute bg-card border rounded-lg shadow-lg flex flex-col"
-          style={{
-            width: `${size.width}px`,
-            height: `${size.height}px`,
-          }}
-        >
-          {/* Header */}
-          <div className="drag-handle flex items-center justify-between px-4 py-3 border-b cursor-move">
-            <div className="flex items-center gap-2">
-              <h2 className="text-h4 font-medium">
-                Project Worksheets
-              </h2>
-              {isConnected && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  <span>Live</span>
-                </div>
-              )}
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+          <DialogHeader className="px-4 py-3 border-b">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <DialogTitle className="text-h4">Project Worksheets</DialogTitle>
+                {isConnected && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    <span>Live</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowImportDialog(true)}
+                  data-testid="button-import-worksheets"
+                >
+                  <Upload className="w-4 h-4 mr-1" />
+                  Import
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNewRow(true)}
+                  disabled={showNewRow}
+                  data-testid="button-add-worksheet"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Worksheet
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowImportDialog(true)}
-                data-testid="button-import-worksheets"
-              >
-                <Upload className="w-4 h-4 mr-1" />
-                Import
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowNewRow(true)}
-                disabled={showNewRow}
-                data-testid="button-add-worksheet"
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Add Worksheet
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenChange(false)}
-                data-testid="button-close-worksheets"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
+          </DialogHeader>
 
-          {/* Table */}
-          <div className="flex-1 overflow-hidden grid" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+          {/* Table Container with ScrollArea */}
+          <ScrollArea className="flex-1">
             <div 
               ref={parentRef}
-              className="overflow-auto focus:outline-none"
+              className="relative"
               onKeyDown={handleTableKeyDown}
               tabIndex={0}
             >
@@ -1044,58 +855,106 @@ export function WorksheetsDialog({
                         </div>
                       </th>
                       <th className="text-data font-medium text-left p-2 border-b w-24">
-                        <span className="sr-only">Actions</span>
+                        Actions
                       </th>
                     </tr>
                   </thead>
-                  <tbody style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+                  <tbody
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      position: 'relative',
+                    }}
+                  >
+                    {/* New row */}
                     {showNewRow && (
-                      <tr className="border-b bg-muted/30" style={{ position: 'relative', zIndex: 1 }}>
-                        <td className="p-2 w-8">
-                          {/* Empty cell for drag handle alignment */}
-                        </td>
-                        <td className="p-2" style={{ width: `${columnWidths.wkshtCode}px` }}>
+                      <tr className="border-b bg-accent/20" data-testid="row-new-worksheet">
+                        <td className="p-2 w-8"></td>
+                        <td className="p-2">
                           <Input
-                            placeholder="Code"
+                            autoFocus
                             value={newRowData.wkshtCode}
                             onChange={(e) => setNewRowData({ ...newRowData, wkshtCode: e.target.value })}
                             onKeyDown={(e) => handleNewRowKeyDown(e)}
                             className="text-data"
                             data-testid="input-new-wkshtCode"
-                            autoFocus
+                            placeholder="Code"
                           />
                         </td>
-                        <td className="p-2" style={{ width: `${columnWidths.description}px` }}>
+                        <td className="p-2">
                           <Input
-                            placeholder="Description"
                             value={newRowData.description}
                             onChange={(e) => setNewRowData({ ...newRowData, description: e.target.value })}
                             onKeyDown={(e) => handleNewRowKeyDown(e)}
                             className="text-data"
                             data-testid="input-new-description"
+                            placeholder="Description"
                           />
                         </td>
-                        <td className="p-2" style={{ width: `${columnWidths.unit}px` }}>
+                        <td className="p-2">
                           <Input
-                            placeholder="Unit"
                             value={newRowData.unit}
                             onChange={(e) => setNewRowData({ ...newRowData, unit: e.target.value })}
                             onKeyDown={(e) => handleNewRowKeyDown(e, true)}
                             className="text-data"
                             data-testid="input-new-unit"
+                            placeholder="Unit"
                           />
                         </td>
                         <td className="p-2 w-24">
-                          {/* Empty cell for alignment */}
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleAddNewRow}
+                              disabled={createMutation.isPending}
+                              data-testid="button-save-new-worksheet"
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setShowNewRow(false);
+                                setNewRowData({ wkshtCode: '', description: '', unit: '' });
+                              }}
+                              data-testid="button-cancel-new-worksheet"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     )}
-                    <SortableContext
-                      items={worksheets.map(w => w.id)}
-                      strategy={verticalListSortingStrategy}
-                      disabled={!isDragEnabled}
-                    >
-                      {virtualItems.map((virtualRow) => {
+
+                    {/* Virtualized rows */}
+                    {isDragEnabled ? (
+                      <SortableContext
+                        items={worksheets.map(w => w.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {virtualItems.map((virtualRow) => {
+                          const worksheet = worksheets[virtualRow.index];
+                          return (
+                            <SortableRow
+                              key={worksheet.id}
+                              worksheet={worksheet}
+                              editingCell={editingCell}
+                              selectedCell={selectedCell}
+                              onCellClick={handleCellClick}
+                              onCellDoubleClick={handleCellDoubleClick}
+                              onFieldChange={handleFieldChange}
+                              onViewItems={setSelectedWorksheet}
+                              onDelete={deleteMutation.mutate}
+                              virtualRow={virtualRow}
+                              measureElement={rowVirtualizer.measureElement}
+                              columnWidths={columnWidths}
+                            />
+                          );
+                        })}
+                      </SortableContext>
+                    ) : (
+                      virtualItems.map((virtualRow) => {
                         const worksheet = worksheets[virtualRow.index];
                         return (
                           <SortableRow
@@ -1107,46 +966,29 @@ export function WorksheetsDialog({
                             onCellDoubleClick={handleCellDoubleClick}
                             onFieldChange={handleFieldChange}
                             onViewItems={setSelectedWorksheet}
-                            onDelete={handleDelete}
+                            onDelete={deleteMutation.mutate}
                             virtualRow={virtualRow}
                             measureElement={rowVirtualizer.measureElement}
+                            columnWidths={columnWidths}
                           />
                         );
-                      })}
-                    </SortableContext>
+                      })
+                    )}
                   </tbody>
                 </table>
-                {isLoading && (
-                  <div className="flex items-center justify-center p-8">
-                    <span className="text-muted-foreground text-data">Loading...</span>
-                  </div>
-                )}
-                {!isLoading && worksheets.length === 0 && !showNewRow && (
-                  <div className="flex items-center justify-center p-8">
-                    <span className="text-muted-foreground text-data">No worksheets yet. Add one to get started.</span>
-                  </div>
-                )}
               </DndContext>
             </div>
-          </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
-          {/* Resize handle */}
-          <div
-            className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
-            onMouseDown={handleMouseDown}
-            style={{
-              background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.2) 50%)',
-            }}
-          />
-        </div>
-      </Draggable>
-
+      {/* Import Dialog */}
       <WorksheetsImportDialog
         open={showImportDialog}
         onOpenChange={setShowImportDialog}
         projectId={projectId}
         onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['/api/projects', projectId, 'worksheets'] });
+          setShowImportDialog(false);
           toast({
             title: "Import successful",
             description: "Worksheets have been imported successfully",
@@ -1154,6 +996,7 @@ export function WorksheetsDialog({
         }}
       />
 
+      {/* Worksheet Items Dialog */}
       {selectedWorksheet && (
         <WorksheetItemsDialog
           open={!!selectedWorksheet}
@@ -1164,6 +1007,6 @@ export function WorksheetsDialog({
           worksheetDescription={selectedWorksheet.description || ''}
         />
       )}
-    </div>
+    </>
   );
 }

@@ -34,22 +34,12 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import type { Worksheet } from '@shared/schema';
 
 interface WorksheetsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
-}
-
-interface Worksheet {
-  id: string;
-  projectId: string;
-  wkshtCode: string;
-  description: string | null;
-  unit: string | null;
-  sortingIndex: number;
-  createdAt: string;
-  updatedAt: string;
 }
 
 // SortableRow component for drag-and-drop with inline editing

@@ -9,7 +9,6 @@ import { Plus, Trash2, GripHorizontal, GripVertical, Move } from 'lucide-react';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import Draggable, { DraggableData, DraggableEvent } from 'react-draggable';
 
 interface WorksheetItemsDialogProps {
   open: boolean;
@@ -144,7 +143,9 @@ export default function WorksheetItemsDialog({
   // Dialog position and size state
   const [dialogPosition, setDialogPosition] = useState({ x: 0, y: 0 });
   const [dialogSize, setDialogSize] = useState({ width: 1400, height: 800 });
+  const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; posX: number; posY: number } | null>(null);
   const resizeStartRef = useRef<{ width: number; height: number; mouseX: number; mouseY: number } | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -162,20 +163,81 @@ export default function WorksheetItemsDialog({
     }
   }, []);
 
-  // Save dialog position to localStorage
-  const handleDragStop = (_e: DraggableEvent, data: DraggableData) => {
-    const newPosition = { x: data.x, y: data.y };
-    setDialogPosition(newPosition);
-    const savedPrefs = JSON.parse(localStorage.getItem('worksheet-items-dialog-prefs') || '{}');
-    localStorage.setItem('worksheet-items-dialog-prefs', JSON.stringify({
-      ...savedPrefs,
-      position: newPosition,
-    }));
+  // Handle drag start
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const contentEl = dialogRef.current;
+    if (!contentEl) return;
+
+    setIsDragging(true);
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      posX: dialogPosition.x,
+      posY: dialogPosition.y,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!dragStartRef.current || !contentEl) return;
+      
+      const deltaX = moveEvent.clientX - dragStartRef.current.mouseX;
+      const deltaY = moveEvent.clientY - dragStartRef.current.mouseY;
+      
+      const newX = dragStartRef.current.posX + deltaX;
+      const newY = dragStartRef.current.posY + deltaY;
+      
+      // Apply directly to DOM
+      requestAnimationFrame(() => {
+        contentEl.style.left = `calc(50% + ${newX}px)`;
+        contentEl.style.top = `calc(50% + ${newY}px)`;
+      });
+    };
+
+    const handleMouseUp = () => {
+      if (!dragStartRef.current) return;
+
+      const deltaX = dragStartRef.current.posX - dialogPosition.x;
+      const deltaY = dragStartRef.current.posY - dialogPosition.y;
+      
+      // Get final position from computed style
+      const computedLeft = contentEl.style.left;
+      const computedTop = contentEl.style.top;
+      
+      // Extract position values (calc(50% + Xpx))
+      const xMatch = computedLeft.match(/calc\(50%\s*\+\s*(-?\d+(?:\.\d+)?)px\)/);
+      const yMatch = computedTop.match(/calc\(50%\s*\+\s*(-?\d+(?:\.\d+)?)px\)/);
+      
+      const finalX = xMatch ? parseFloat(xMatch[1]) : dialogPosition.x;
+      const finalY = yMatch ? parseFloat(yMatch[1]) : dialogPosition.y;
+      
+      // Update state with final position
+      setDialogPosition({ x: finalX, y: finalY });
+      
+      // Save to localStorage
+      const savedPrefs = JSON.parse(localStorage.getItem('worksheet-items-dialog-prefs') || '{}');
+      localStorage.setItem('worksheet-items-dialog-prefs', JSON.stringify({
+        ...savedPrefs,
+        position: { x: finalX, y: finalY },
+      }));
+
+      setIsDragging(false);
+      dragStartRef.current = null;
+      
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Handle resize
-  const handleResizeStart = (e: React.MouseEvent) => {
+  // Handle resize start - generic handler that supports width, height, or both
+  const handleResizeStart = (e: React.MouseEvent, mode: 'both' | 'width' | 'height') => {
     e.preventDefault();
+    e.stopPropagation();
+    const contentEl = dialogRef.current;
+    if (!contentEl) return;
+
     setIsResizing(true);
     resizeStartRef.current = {
       width: dialogSize.width,
@@ -183,45 +245,61 @@ export default function WorksheetItemsDialog({
       mouseX: e.clientX,
       mouseY: e.clientY,
     };
-  };
 
-  useEffect(() => {
-    if (!isResizing || !resizeStartRef.current) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!resizeStartRef.current) return;
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizeStartRef.current || !contentEl) return;
       
-      const deltaX = e.clientX - resizeStartRef.current.mouseX;
-      const deltaY = e.clientY - resizeStartRef.current.mouseY;
+      const deltaX = moveEvent.clientX - resizeStartRef.current.mouseX;
+      const deltaY = moveEvent.clientY - resizeStartRef.current.mouseY;
       
-      const newSize = {
-        width: Math.max(800, resizeStartRef.current.width + deltaX),
-        height: Math.max(500, resizeStartRef.current.height + deltaY),
-      };
+      let newWidth = resizeStartRef.current.width;
+      let newHeight = resizeStartRef.current.height;
       
-      setDialogSize(newSize);
+      // Update width if mode allows it
+      if (mode === 'both' || mode === 'width') {
+        newWidth = Math.max(800, resizeStartRef.current.width + deltaX);
+      }
+      
+      // Update height if mode allows it
+      if (mode === 'both' || mode === 'height') {
+        newHeight = Math.max(500, resizeStartRef.current.height + deltaY);
+      }
+      
+      // Apply directly to DOM
+      requestAnimationFrame(() => {
+        contentEl.style.width = `${newWidth}px`;
+        contentEl.style.height = `${newHeight}px`;
+        contentEl.style.maxWidth = `${newWidth}px`;
+      });
     };
 
     const handleMouseUp = () => {
-      setIsResizing(false);
-      resizeStartRef.current = null;
+      if (!resizeStartRef.current || !contentEl) return;
+
+      // Get final size from computed style
+      const finalWidth = parseInt(contentEl.style.width) || dialogSize.width;
+      const finalHeight = parseInt(contentEl.style.height) || dialogSize.height;
       
-      // Save size to localStorage
+      // Update state with final size
+      setDialogSize({ width: finalWidth, height: finalHeight });
+      
+      // Save to localStorage
       const savedPrefs = JSON.parse(localStorage.getItem('worksheet-items-dialog-prefs') || '{}');
       localStorage.setItem('worksheet-items-dialog-prefs', JSON.stringify({
         ...savedPrefs,
-        size: dialogSize,
+        size: { width: finalWidth, height: finalHeight },
       }));
+
+      setIsResizing(false);
+      resizeStartRef.current = null;
+      
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing, dialogSize]);
+  };
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -549,35 +627,42 @@ export default function WorksheetItemsDialog({
     );
   };
 
+  // Apply position/size using refs after dialog mounts
+  useEffect(() => {
+    if (!open || !dialogRef.current) return;
+    
+    const contentEl = dialogRef.current;
+    contentEl.style.width = `${dialogSize.width}px`;
+    contentEl.style.height = `${dialogSize.height}px`;
+    contentEl.style.maxWidth = `${dialogSize.width}px`;
+    
+    // Position from center
+    if (dialogPosition.x !== 0 || dialogPosition.y !== 0) {
+      contentEl.style.left = `calc(50% + ${dialogPosition.x}px)`;
+      contentEl.style.top = `calc(50% + ${dialogPosition.y}px)`;
+    }
+  }, [open, dialogSize, dialogPosition]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <Draggable
-        handle=".drag-handle"
-        position={dialogPosition}
-        onStop={handleDragStop}
-        bounds="parent"
+      <DialogContent
+        ref={dialogRef}
+        className="flex flex-col p-0 gap-0"
+        data-testid="worksheet-items-dialog"
       >
-        <div
-          ref={dialogRef}
-          className="fixed bg-background border rounded-lg shadow-lg flex flex-col"
-          style={{
-            width: `${dialogSize.width}px`,
-            height: `${dialogSize.height}px`,
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 50,
-          }}
-          data-testid="worksheet-items-dialog"
-        >
+        <div className="flex flex-col h-full">
           {/* Drag Handle Header */}
-          <div className="drag-handle flex items-center justify-between px-6 py-4 border-b cursor-move bg-muted/30">
+          <div 
+            className="drag-handle flex items-center justify-between px-6 py-4 border-b cursor-move bg-muted/30"
+            onMouseDown={handleDragStart}
+            data-testid="drag-handle"
+          >
             <div className="flex items-center gap-2">
               <Move className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-data-lg font-semibold">
+              <DialogTitle className="text-data-lg">
                 Worksheet Items - {worksheetCode}
                 {worksheetDescription && ` (${worksheetDescription})`}
-              </h2>
+              </DialogTitle>
             </div>
             <Button
               variant="ghost"
@@ -892,24 +977,24 @@ export default function WorksheetItemsDialog({
 
         {/* Resize Handles */}
         <div
-          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize hover:bg-blue-500/20"
-          onMouseDown={handleResizeStart}
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize hover:bg-blue-500/20 z-10"
+          onMouseDown={(e) => handleResizeStart(e, 'both')}
           data-testid="resize-handle-br"
         >
           <GripVertical className="h-3 w-3 text-muted-foreground absolute bottom-0 right-0" />
         </div>
         <div
-          className="absolute bottom-0 left-0 right-0 h-1 cursor-ns-resize hover:bg-blue-500/20"
-          onMouseDown={handleResizeStart}
+          className="absolute bottom-0 left-0 right-0 h-1 cursor-ns-resize hover:bg-blue-500/20 z-10"
+          onMouseDown={(e) => handleResizeStart(e, 'height')}
           data-testid="resize-handle-bottom"
         />
         <div
-          className="absolute top-0 bottom-0 right-0 w-1 cursor-ew-resize hover:bg-blue-500/20"
-          onMouseDown={handleResizeStart}
+          className="absolute top-0 bottom-0 right-0 w-1 cursor-ew-resize hover:bg-blue-500/20 z-10"
+          onMouseDown={(e) => handleResizeStart(e, 'width')}
           data-testid="resize-handle-right"
         />
-      </div>
-      </Draggable>
+        </div>
+      </DialogContent>
     </Dialog>
   );
 }

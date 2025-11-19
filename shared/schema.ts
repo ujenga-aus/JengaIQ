@@ -1692,7 +1692,8 @@ export const worksheetItems = pgTable("worksheet_items", {
   description: text("description"),
   formula: text("formula"),
   resourceRateId: varchar("resource_rate_id").references(() => resourceRates.id, { onDelete: "set null" }),
-  qty: numeric("qty", { precision: 15, scale: 2 }),
+  result: numeric("result", { precision: 15, scale: 2 }).notNull().default(sql`0`), // Computed from formula (alpha chars stripped)
+  total: numeric("total", { precision: 15, scale: 2 }).notNull().default(sql`0`), // Computed as tenderRate * result
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({
@@ -1702,6 +1703,8 @@ export const worksheetItems = pgTable("worksheet_items", {
 
 export const insertWorksheetItemSchema = createInsertSchema(worksheetItems).omit({
   id: true,
+  result: true, // Computed server-side from formula
+  total: true, // Computed server-side as tenderRate * result
   createdAt: true,
   updatedAt: true,
 });

@@ -11583,16 +11583,39 @@ CRITICAL REQUIREMENTS:
         return res.status(403).json({ error: 'Access denied' });
       }
       
-      const { worksheetItems, insertWorksheetItemSchema } = await import('@shared/schema');
+      const { worksheetItems, insertWorksheetItemSchema, resourceRates } = await import('@shared/schema');
+      const { parseFormula } = await import('./utils/formulaParser');
       
       const validated = insertWorksheetItemSchema.parse({
         ...req.body,
         worksheetId,
       });
 
+      // Compute result from formula
+      const result = parseFormula(validated.formula);
+
+      // Get tender rate from resource if available
+      let tenderRate = 0;
+      if (validated.resourceRateId) {
+        const [resource] = await db
+          .select()
+          .from(resourceRates)
+          .where(eq(resourceRates.id, validated.resourceRateId));
+        if (resource) {
+          tenderRate = parseFloat(resource.tenderRate || '0');
+        }
+      }
+
+      // Compute total = tenderRate * result
+      const total = Math.round(tenderRate * result * 100) / 100;
+
       const [item] = await db
         .insert(worksheetItems)
-        .values(validated)
+        .values({
+          ...validated,
+          result: result.toString(),
+          total: total.toString(),
+        })
         .returning();
 
       res.status(201).json(item);
@@ -11614,16 +11637,58 @@ CRITICAL REQUIREMENTS:
         return res.status(403).json({ error: 'Access denied' });
       }
       
-      const { worksheetItems, insertWorksheetItemSchema } = await import('@shared/schema');
+      const { worksheetItems, insertWorksheetItemSchema, resourceRates } = await import('@shared/schema');
+      const { parseFormula } = await import('./utils/formulaParser');
 
       // Validate and parse request body with partial schema
       const validated = insertWorksheetItemSchema.partial().parse(req.body);
+
+      // Get the current item to access existing values
+      const [currentItem] = await db
+        .select()
+        .from(worksheetItems)
+        .where(and(
+          eq(worksheetItems.id, id),
+          eq(worksheetItems.worksheetId, worksheetId)
+        ));
+
+      if (!currentItem) {
+        return res.status(404).json({ error: 'Worksheet item not found' });
+      }
+
+      // Determine final formula (use updated or existing)
+      const finalFormula = validated.formula !== undefined ? validated.formula : currentItem.formula;
+      
+      // Compute result from formula
+      const result = parseFormula(finalFormula);
+
+      // Determine final resourceRateId (use updated or existing)
+      const finalResourceRateId = validated.resourceRateId !== undefined 
+        ? validated.resourceRateId 
+        : currentItem.resourceRateId;
+
+      // Get tender rate from resource if available
+      let tenderRate = 0;
+      if (finalResourceRateId) {
+        const [resource] = await db
+          .select()
+          .from(resourceRates)
+          .where(eq(resourceRates.id, finalResourceRateId));
+        if (resource) {
+          tenderRate = parseFloat(resource.tenderRate || '0');
+        }
+      }
+
+      // Compute total = tenderRate * result
+      const total = Math.round(tenderRate * result * 100) / 100;
 
       // Update with ownership check - only allow updating items that belong to this worksheet
       const [item] = await db
         .update(worksheetItems)
         .set({
           ...validated,
+          result: result.toString(),
+          total: total.toString(),
           updatedAt: new Date(),
         })
         .where(and(
@@ -11631,10 +11696,6 @@ CRITICAL REQUIREMENTS:
           eq(worksheetItems.worksheetId, worksheetId)
         ))
         .returning();
-
-      if (!item) {
-        return res.status(404).json({ error: 'Worksheet item not found' });
-      }
 
       res.json(item);
     } catch (error: any) {

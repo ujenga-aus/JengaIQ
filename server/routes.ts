@@ -11279,10 +11279,61 @@ CRITICAL REQUIREMENTS:
 
   // === WORKSHEETS ===
 
+  // Helper function to verify project access
+  async function verifyProjectAccess(projectId: string, person: Person): Promise<boolean> {
+    // Super admins have access to all companies
+    if (person.isSuperAdmin) {
+      return true;
+    }
+    
+    const userCompanyId = person.companyId;
+    if (!userCompanyId) {
+      console.log('[verifyProjectAccess] No company ID for user');
+      return false;
+    }
+    
+    const [project] = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    
+    if (!project || !project.businessUnitId) {
+      console.log('[verifyProjectAccess] Project not found or missing businessUnitId');
+      return false;
+    }
+    
+    const [businessUnit] = await db
+      .select()
+      .from(businessUnits)
+      .where(eq(businessUnits.id, project.businessUnitId))
+      .limit(1);
+    
+    if (!businessUnit) {
+      console.log('[verifyProjectAccess] Business unit not found');
+      return false;
+    }
+    
+    const hasAccess = businessUnit.companyId === userCompanyId;
+    if (!hasAccess) {
+      console.log('[verifyProjectAccess] Company mismatch');
+    }
+    
+    return hasAccess;
+  }
+
   // Get all worksheets for a project
   app.get('/api/projects/:projectId/worksheets', isAuthenticated, async (req, res) => {
     try {
       const { projectId } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
       const { worksheets } = await import('@shared/schema');
 
       const items = await db
@@ -11301,6 +11352,14 @@ CRITICAL REQUIREMENTS:
   app.post('/api/projects/:projectId/worksheets', isAuthenticated, async (req, res) => {
     try {
       const { projectId } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
       const { worksheets, insertWorksheetSchema } = await import('@shared/schema');
       
       const validated = insertWorksheetSchema.parse({
@@ -11339,6 +11398,14 @@ CRITICAL REQUIREMENTS:
   app.patch('/api/projects/:projectId/worksheets/:id', isAuthenticated, async (req, res) => {
     try {
       const { projectId, id } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
       const { worksheets, insertWorksheetSchema } = await import('@shared/schema');
 
       // Validate and parse request body with partial schema
@@ -11387,6 +11454,14 @@ CRITICAL REQUIREMENTS:
   app.delete('/api/projects/:projectId/worksheets/:id', isAuthenticated, async (req, res) => {
     try {
       const { projectId, id } = req.params;
+      const person = (req as any).person;
+      
+      // Verify project access
+      const hasAccess = await verifyProjectAccess(projectId, person);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
       const { worksheets } = await import('@shared/schema');
 
       // Delete with ownership check - only allow deleting worksheets that belong to this project

@@ -9268,23 +9268,24 @@ CRITICAL: Generate TWO types of PlantUML diagrams:
    - Use the same formatting as individual diagrams
 
 CRITICAL PlantUML SYNTAX RULES (for BOTH individual and combined):
-- Use COLORED swimlanes to distinguish parties: |#B3E5FC|Contractor|, |#C8E6C9|Principal|, |#FFE0B2|Superintendent|, |#E1BEE7|Consultant|
+- Use COLORED swimlanes to distinguish parties: |#FFE8E0|Contractor|, |#E8F5E9|Principal|, |#E0F7FA|Government Agency|, |#FFF3E0|Superintendent|, |#F3E5F5|Consultant|
 - Use proper activity syntax: :Action Description\\n(Clause X.X);
 - Use notes for durations: note right: Day X\\n(within X days) end note
 - Use if/else for decision branches: if (Question?) then (Yes) ... else (No) ... endif
 - Use detach for loop-backs (instead of stop)
 - Use floating notes for time bars: floating note left: TIME BAR: X days\\n(Clause X.X)
 
-PARTY COLOR MAPPING (MUST use these exact colors):
-- Contractor: #B3E5FC (light cyan)
-- Principal/Client: #C8E6C9 (light green)
-- Superintendent: #FFE0B2 (light orange)
-- Consultant: #E1BEE7 (light purple)
-- Subcontractor: #FFCCBC (light coral)
+PARTY COLOR MAPPING (MUST use these exact very light blush colors at ~25% opacity):
+- Contractor: #FFE8E0 (very light orange/coral)
+- Principal/Client: #E8F5E9 (very light green)
+- Government Agency: #E0F7FA (very light cyan)
+- Superintendent: #FFF3E0 (very light amber)
+- Consultant: #F3E5F5 (very light purple)
+- Subcontractor: #FFEBEE (very light red)
 - Other parties: #F5F5F5 (light gray)
 
 REQUIRED ELEMENTS FOR EACH NOTICE FLOW (both individual and combined):
-1. Party Swimlanes WITH COLORS: |#B3E5FC|Contractor|, |#C8E6C9|Principal| (NOT partition syntax, MUST include color code)
+1. Party Swimlanes WITH COLORS: |#FFE8E0|Contractor|, |#E8F5E9|Principal| (NOT partition syntax, MUST include color code)
 2. Activities with clause refs: :Issue Notice\\n(Clause 10.2);
 3. Duration Notes: note right: Day 7\\n(within 7 days)\\nDuration: 7 days end note
 4. Decision Branches: if (Response?) then (Approve - Clause 10.3.1)
@@ -9304,7 +9305,7 @@ Example PlantUML format (use this EXACT format for BOTH individual and combined)
 @startuml Notice_Flow_VAR01
 title Variation Notice Flow (Clause 10)
 
-|#B3E5FC|Contractor|
+|#FFE8E0|Contractor|
 start
 :Trigger Event Occurs\\n(Clause 10.1);
 note right: Day 0
@@ -9315,7 +9316,7 @@ note right
   (within 7 days)
 end note
 
-|#C8E6C9|Principal|
+|#E8F5E9|Principal|
 :Receive Notice\\n(Clause 10.3);
 note right: Day 7
 
@@ -9327,7 +9328,7 @@ if (Response?) then (Approve - Clause 10.3.1)
   
 else (Reject - Clause 10.3.2)
   note right: Within 14 days (Day 21)
-  |#B3E5FC|Contractor|
+  |#FFE8E0|Contractor|
   :Revise & Resubmit\\n(Clause 10.5);
   note right
     Within 7 days (Day 28)
@@ -9337,13 +9338,13 @@ else (Reject - Clause 10.3.2)
   
 else (More Info - Clause 10.3.3)
   note right: Within 14 days (Day 21)
-  |Contractor|
+  |#FFE8E0|Contractor|
   :Provide Information\\n(Clause 10.3.4);
   note right
     Within 7 days (Day 28)
     Duration: 7 days
   end note
-  |Principal|
+  |#E8F5E9|Principal|
   :Re-assess;
   detach
   
@@ -9353,7 +9354,7 @@ else (No Response - Clause 10.3.5)
     Deemed Approved
     Duration: 14 days
   end note
-  |Contractor|
+  |#FFE8E0|Contractor|
   :Work Proceeds\\n(Clause 10.6);
   stop
 endif
@@ -9457,15 +9458,17 @@ CRITICAL REQUIREMENTS:
         // Generate PlantUML for each parent clause group using THE SAME DETAILED FORMAT as overview
         const parentClauseFlowcharts: Record<string, string> = {};
         
-        // Color mapping for parties (vibrant colors that work in both light and dark modes)
+        // Color mapping for parties (very light blush colors at ~25% opacity for subtle swimlane distinction)
         const getPartyColor = (partyName: string): string => {
           const normalized = partyName.toLowerCase();
-          if (normalized.includes('contractor')) return '#B3E5FC'; // Light cyan
-          if (normalized.includes('principal')) return '#C8E6C9'; // Light green
-          if (normalized.includes('client')) return '#C8E6C9'; // Light green (same as principal)
-          if (normalized.includes('superintendent')) return '#FFE0B2'; // Light orange
-          if (normalized.includes('consultant')) return '#E1BEE7'; // Light purple
-          if (normalized.includes('subcontractor')) return '#FFCCBC'; // Light coral
+          if (normalized.includes('contractor')) return '#FFE8E0'; // Very light orange/coral (25% opacity)
+          if (normalized.includes('principal')) return '#E8F5E9'; // Very light green (25% opacity)
+          if (normalized.includes('client')) return '#E8F5E9'; // Very light green (same as principal)
+          if (normalized.includes('government')) return '#E0F7FA'; // Very light cyan (25% opacity)
+          if (normalized.includes('agency')) return '#E0F7FA'; // Very light cyan
+          if (normalized.includes('superintendent')) return '#FFF3E0'; // Very light amber (25% opacity)
+          if (normalized.includes('consultant')) return '#F3E5F5'; // Very light purple (25% opacity)
+          if (normalized.includes('subcontractor')) return '#FFEBEE'; // Very light red (25% opacity)
           return '#F5F5F5'; // Light gray for unknown parties
         };
         

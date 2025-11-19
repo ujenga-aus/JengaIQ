@@ -11276,6 +11276,144 @@ CRITICAL REQUIREMENTS:
     }
   });
 
+  // === WORKSHEETS ===
+
+  // Get all worksheets for a project
+  app.get('/api/projects/:projectId/worksheets', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { worksheets } = await import('@shared/schema');
+
+      const items = await db
+        .select()
+        .from(worksheets)
+        .where(eq(worksheets.projectId, projectId));
+
+      res.json(items);
+    } catch (error) {
+      console.error('Error fetching worksheets:', error);
+      res.status(500).json({ error: 'Failed to fetch worksheets' });
+    }
+  });
+
+  // Create a new worksheet
+  app.post('/api/projects/:projectId/worksheets', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { worksheets, insertWorksheetSchema } = await import('@shared/schema');
+      
+      const validated = insertWorksheetSchema.parse({
+        ...req.body,
+        projectId,
+      });
+
+      const [worksheet] = await db
+        .insert(worksheets)
+        .values(validated)
+        .returning();
+
+      // Broadcast WebSocket update
+      worksheetsWS.broadcastToProject(projectId, {
+        type: 'worksheet_created',
+        data: worksheet
+      });
+
+      res.status(201).json(worksheet);
+    } catch (error: any) {
+      console.error('Error creating worksheet:', error);
+      
+      // Handle unique constraint violation
+      if (error.code === '23505' && error.constraint?.includes('worksheets_project_code_unique')) {
+        return res.status(409).json({ 
+          error: 'Code already exists for this project',
+          field: 'wkshtCode'
+        });
+      }
+
+      res.status(500).json({ error: 'Failed to create worksheet' });
+    }
+  });
+
+  // Update a worksheet
+  app.patch('/api/projects/:projectId/worksheets/:id', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId, id } = req.params;
+      const { worksheets, insertWorksheetSchema } = await import('@shared/schema');
+
+      // Validate and parse request body with partial schema
+      const validated = insertWorksheetSchema.partial().parse(req.body);
+
+      // Update with ownership check - only allow updating worksheets that belong to this project
+      const [worksheet] = await db
+        .update(worksheets)
+        .set({
+          ...validated,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(worksheets.id, id),
+          eq(worksheets.projectId, projectId)
+        ))
+        .returning();
+
+      if (!worksheet) {
+        return res.status(404).json({ error: 'Worksheet not found' });
+      }
+
+      // Broadcast WebSocket update
+      worksheetsWS.broadcastToProject(projectId, {
+        type: 'worksheet_updated',
+        data: worksheet
+      });
+
+      res.json(worksheet);
+    } catch (error: any) {
+      console.error('Error updating worksheet:', error);
+      
+      // Handle unique constraint violation
+      if (error.code === '23505' && error.constraint?.includes('worksheets_project_code_unique')) {
+        return res.status(409).json({ 
+          error: 'Code already exists for this project',
+          field: 'wkshtCode'
+        });
+      }
+
+      res.status(500).json({ error: 'Failed to update worksheet' });
+    }
+  });
+
+  // Delete a worksheet
+  app.delete('/api/projects/:projectId/worksheets/:id', isAuthenticated, async (req, res) => {
+    try {
+      const { projectId, id } = req.params;
+      const { worksheets } = await import('@shared/schema');
+
+      // Delete with ownership check - only allow deleting worksheets that belong to this project
+      const [worksheet] = await db
+        .delete(worksheets)
+        .where(and(
+          eq(worksheets.id, id),
+          eq(worksheets.projectId, projectId)
+        ))
+        .returning();
+
+      if (!worksheet) {
+        return res.status(404).json({ error: 'Worksheet not found' });
+      }
+
+      // Broadcast WebSocket update
+      worksheetsWS.broadcastToProject(projectId, {
+        type: 'worksheet_deleted',
+        data: worksheet
+      });
+
+      res.json(worksheet);
+    } catch (error) {
+      console.error('Error deleting worksheet:', error);
+      res.status(500).json({ error: 'Failed to delete worksheet' });
+    }
+  });
+
   // === PROCUREMENT: SUBCONTRACT TEMPLATES ===
 
   // Upload subcontract template PDF

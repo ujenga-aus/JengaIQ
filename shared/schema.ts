@@ -1660,6 +1660,29 @@ export const insertResourceRateSchema = createInsertSchema(resourceRates).omit({
 export type InsertResourceRate = z.infer<typeof insertResourceRateSchema>;
 export type ResourceRate = typeof resourceRates.$inferSelect;
 
+// Worksheets - project-specific worksheet codes for BOQ classifications
+export const worksheets = pgTable("worksheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  wkshtCode: text("wksht_code").notNull(),
+  description: text("description"),
+  unit: text("unit"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  projectIdx: index("worksheets_project_idx").on(table.projectId),
+  uniqueCodePerProject: unique("worksheets_project_code_unique").on(table.projectId, table.wkshtCode)
+}));
+
+export const insertWorksheetSchema = createInsertSchema(worksheets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertWorksheet = z.infer<typeof insertWorksheetSchema>;
+export type Worksheet = typeof worksheets.$inferSelect;
+
 // === CONTRACT VIEWER SYSTEM ===
 
 // Contract Clauses - AI-extracted clause headings per contract revision

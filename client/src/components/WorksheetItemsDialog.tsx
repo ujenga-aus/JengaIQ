@@ -26,7 +26,8 @@ interface WorksheetItem {
   description: string | null;
   formula: string | null;
   resourceRateId: string | null;
-  qty: string | null;
+  result: string | null; // Computed from formula (alpha chars stripped)
+  total: string | null; // Computed as tenderRate * result
   createdAt: string;
   updatedAt: string;
 }
@@ -47,8 +48,9 @@ const DEFAULT_COLUMN_WIDTHS = {
   formula: 150,
   resource: 250,
   unit: 100,
-  qty: 100,
+  result: 100,
   tenderRate: 120,
+  total: 120,
   actions: 80,
 };
 
@@ -131,12 +133,10 @@ export default function WorksheetItemsDialog({
     description: string;
     formula: string;
     resourceRateId: string | null;
-    qty: string;
   }>({
     description: '',
     formula: '',
     resourceRateId: null,
-    qty: '',
   });
   const [resourceSearchOpen, setResourceSearchOpen] = useState<string | null>(null);
   const saveTimerRef = useRef<Record<string, NodeJS.Timeout>>({});
@@ -203,7 +203,6 @@ export default function WorksheetItemsDialog({
         description: '',
         formula: '',
         resourceRateId: null,
-        qty: '',
       });
       toast({
         title: 'Item created',
@@ -229,7 +228,6 @@ export default function WorksheetItemsDialog({
           description: updatedItem.description,
           formula: updatedItem.formula,
           resourceRateId: updatedItem.resourceRateId,
-          qty: updatedItem.qty,
         }
       );
       return await response.json() as WorksheetItem;
@@ -354,8 +352,8 @@ export default function WorksheetItemsDialog({
   };
 
   const handleCellClick = (id: string, field: string) => {
-    // Don't allow editing unit, tenderRate, or LQ (LQ is auto-numbered)
-    if (field === 'unit' || field === 'tenderRate' || field === 'lq') return;
+    // Don't allow editing unit, tenderRate, result, total, or LQ (computed fields)
+    if (field === 'unit' || field === 'tenderRate' || field === 'result' || field === 'total' || field === 'lq') return;
     setEditingCell({ id, field });
   };
 
@@ -374,7 +372,6 @@ export default function WorksheetItemsDialog({
       description: newRowData.description || null,
       formula: newRowData.formula || null,
       resourceRateId: newRowData.resourceRateId || null,
-      qty: newRowData.qty || null,
     });
   };
 
@@ -460,8 +457,9 @@ export default function WorksheetItemsDialog({
               <col style={{ width: `${columnWidths.formula}px`, minWidth: '100px' }} />
               <col style={{ width: `${columnWidths.resource}px`, minWidth: '150px' }} />
               <col style={{ width: `${columnWidths.unit}px`, minWidth: '60px' }} />
-              <col style={{ width: `${columnWidths.qty}px`, minWidth: '80px' }} />
+              <col style={{ width: `${columnWidths.result}px`, minWidth: '80px' }} />
               <col style={{ width: `${columnWidths.tenderRate}px`, minWidth: '100px' }} />
+              <col style={{ width: `${columnWidths.total}px`, minWidth: '100px' }} />
               <col style={{ width: `${columnWidths.actions}px`, minWidth: '60px' }} />
             </colgroup>
             <TableHeader className="sticky top-0 z-10 bg-background">
@@ -512,13 +510,13 @@ export default function WorksheetItemsDialog({
                   Unit
                 </ResizableTableHead>
                 <ResizableTableHead
-                  columnId="qty"
-                  currentWidth={columnWidths.qty}
+                  columnId="result"
+                  currentWidth={columnWidths.result}
                   minWidth={80}
                   onResize={saveColumnWidth}
                   className="text-right"
                 >
-                  QTY
+                  Result
                 </ResizableTableHead>
                 <ResizableTableHead
                   columnId="tenderRate"
@@ -528,6 +526,15 @@ export default function WorksheetItemsDialog({
                   className="text-right"
                 >
                   Tender Rate
+                </ResizableTableHead>
+                <ResizableTableHead
+                  columnId="total"
+                  currentWidth={columnWidths.total}
+                  minWidth={100}
+                  onResize={saveColumnWidth}
+                  className="text-right"
+                >
+                  Total
                 </ResizableTableHead>
                 <TableHead className="text-left">Actions</TableHead>
               </TableRow>
@@ -604,31 +611,12 @@ export default function WorksheetItemsDialog({
                     >
                       {resource?.unit || '-'}
                     </TableCell>
-                    <TableCell
-                      className="cursor-pointer p-0"
-                      onClick={() => handleCellClick(item.id, 'qty')}
-                      data-testid={`cell-qty-${item.id}`}
+                    <TableCell 
+                      className="text-muted-foreground text-data text-right px-4" 
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      data-testid={`cell-result-${item.id}`}
                     >
-                      {editingCell?.id === item.id && editingCell?.field === 'qty' ? (
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={editValues[`${item.id}-qty`] ?? item.qty ?? ''}
-                          onChange={(e) => handleFieldChange(item, 'qty', e.target.value || null)}
-                          onBlur={() => setEditingCell(null)}
-                          autoFocus
-                          className="border-0 focus-visible:ring-1 h-auto py-0 text-data text-right"
-                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
-                          data-testid={`input-qty-${item.id}`}
-                        />
-                      ) : (
-                        <div 
-                          className="text-data text-right px-4" 
-                          style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
-                        >
-                          {editValues[`${item.id}-qty`] ?? item.qty ?? '-'}
-                        </div>
-                      )}
+                      {item.result || '-'}
                     </TableCell>
                     <TableCell 
                       className="text-muted-foreground text-data text-right px-4" 
@@ -636,6 +624,13 @@ export default function WorksheetItemsDialog({
                       data-testid={`cell-tender-rate-${item.id}`}
                     >
                       {resource?.tenderRate || '-'}
+                    </TableCell>
+                    <TableCell 
+                      className="text-muted-foreground text-data text-right px-4 font-medium" 
+                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                      data-testid={`cell-total-${item.id}`}
+                    >
+                      {item.total || '-'}
                     </TableCell>
                     <TableCell 
                       className="px-2" 
@@ -692,23 +687,25 @@ export default function WorksheetItemsDialog({
                   >
                     {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.unit || '-'}
                   </TableCell>
-                  <TableCell className="p-0">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={newRowData.qty}
-                      onChange={(e) => setNewRowData({ ...newRowData, qty: e.target.value })}
-                      placeholder="QTY"
-                      className="border-0 focus-visible:ring-1 h-auto py-0 text-data text-right"
-                      style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
-                      data-testid="input-new-qty"
-                    />
+                  <TableCell 
+                    className="text-muted-foreground text-data text-right px-4 italic" 
+                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    data-testid="cell-new-result"
+                  >
+                    auto
                   </TableCell>
                   <TableCell 
                     className="text-muted-foreground text-data text-right px-4" 
                     style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
                   >
                     {newRowData.resourceRateId && resourceMap.get(newRowData.resourceRateId)?.tenderRate || '-'}
+                  </TableCell>
+                  <TableCell 
+                    className="text-muted-foreground text-data text-right px-4 italic" 
+                    style={{ paddingTop: 'var(--row-py)', paddingBottom: 'var(--row-py)' }}
+                    data-testid="cell-new-total"
+                  >
+                    auto
                   </TableCell>
                   <TableCell 
                     className="px-2" 
